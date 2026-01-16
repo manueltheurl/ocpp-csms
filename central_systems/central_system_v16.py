@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2020 - 2024 Pionix GmbH and Contributors to EVerest
+import asyncio
 import logging
 from datetime import datetime, timezone
 import json
@@ -34,6 +35,16 @@ logging.basicConfig(level=logging.INFO)
 
 
 class ChargePoint16(cp):
+    # Class-level callback for meter values
+    meter_value_callback = None
+    # Class-level callback for heartbeat
+    heartbeat_callback = None
+    # Class-level callback for ping
+    ping_callback = None
+    # Class-level callbacks for connection status
+    connection_established_callback = None
+    connection_closed_callback = None
+    
     def __init__(self, *args, iso15118_certs, **kwargs):
         super().__init__(*args, **kwargs)
         self.iso15118_certs = iso15118_certs
@@ -42,19 +53,63 @@ class ChargePoint16(cp):
                 certs_path=self.iso15118_certs.as_posix())
         else:
             self.exi_generator = None
+        self._periodic_task = None
+
+    async def start(self):
+        """Start the charge point and periodic metering task."""
+        # Notify connection established
+        if ChargePoint16.connection_established_callback:
+            ChargePoint16.connection_established_callback(self.id)
+        
+        # Start periodic meter value requests
+        self._periodic_task = asyncio.create_task(
+            self._periodic_meter_value_request())
+        
+        try:
+            await super().start()
+        finally:
+            # Notify connection closed when start() completes (client disconnected)
+            if ChargePoint16.connection_closed_callback:
+                ChargePoint16.connection_closed_callback(self.id)
+
+    async def _periodic_meter_value_request(self):
+        """Periodically send TriggerMessage to request MeterValues every second."""
+        # Wait a bit for the charge point to be fully initialized
+        await asyncio.sleep(5)
+        
+        while True:
+            try:
+                # Send TriggerMessage to request MeterValues for connector 0
+                from ocpp.v16.enums import MessageTrigger
+                response = await self.trigger_message_req(
+                    requested_message=MessageTrigger.meter_values,
+                    connector_id=1
+                )
+                logging.info(f"TriggerMessage response: {response}")
+            except Exception as e:
+                logging.error(f"Error sending TriggerMessage: {e}")
+            
+            # Wait 1 second before next request
+            await asyncio.sleep(1)
 
     @on(Action.boot_notification)
-    def on_boot_notification(
+    async def on_boot_notification(
         self, charge_point_vendor: str, charge_point_model: str, **kwargs
     ):
-        return call_result.BootNotification(
+        # Send BootNotification response first
+        result = call_result.BootNotification(
             current_time=datetime.now(timezone.utc).isoformat(),
             interval=10,
             status=RegistrationStatus.accepted,
         )
+        
+        return result
 
     @on(Action.heartbeat)
     def on_heartbeat(self, **kwargs):
+        # Call the callback if registered
+        if ChargePoint16.heartbeat_callback:
+            ChargePoint16.heartbeat_callback()
         return call_result.Heartbeat(current_time=datetime.now(timezone.utc).isoformat())
 
     @on(Action.authorize)
@@ -64,8 +119,43 @@ class ChargePoint16(cp):
 
     @on(Action.meter_values)
     def on_meter_values(self, **kwargs):
-        return call_result.MeterValues()
+        try:
+            # Log the received meter values for debugging
+            connector_id = kwargs.get('connector_id', 'unknown')
+            meter_value = kwargs.get('meter_value', [])
+            
+            voltage_value = None
+            
+            if not meter_value:
+                logging.warning(f"⚠️  Empty MeterValues received for connector {connector_id}")
+            else:
+                logging.info(f"✅ MeterValues received for connector {connector_id}:")
+                for mv in meter_value:
+                    timestamp = mv.get('timestamp', 'unknown')
+                    sampled_values = mv.get('sampled_value', [])
+                    logging.info(f"   Timestamp: {timestamp}")
+                    for sv in sampled_values:
+                        value = sv.get('value', 'N/A')
+                        measurand = sv.get('measurand', 'N/A')
+                        unit = sv.get('unit', 'N/A')
+                        location = sv.get('location', 'N/A')
+                        logging.info(f"     {measurand}: {value} {unit} (Location: {location})")
+                        
+                        if measurand == 'Energy.Active.Import.Register':
+                            voltage_value = value
 
+            # Call the callback if registered
+            if ChargePoint16.meter_value_callback:
+                ChargePoint16.meter_value_callback({
+                    'connector_id': connector_id,
+                    'voltage': voltage_value,
+                    'raw_data': kwargs
+                })
+            
+            return call_result.MeterValues()
+        except Exception as e:
+            logging.error(f"❌ Error processing MeterValues: {e}")
+            return call_result.MeterValues()
     @on(Action.status_notification)
     def on_status_notification(self, **kwargs):
         return call_result.StatusNotification()

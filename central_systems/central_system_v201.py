@@ -1,6 +1,7 @@
 
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2020 - 2024 Pionix GmbH and Contributors to EVerest
+import asyncio
 import logging
 from datetime import datetime, timezone
 import sys
@@ -33,6 +34,33 @@ class ChargePoint201(cp):
                 certs_path=self.iso15118_certs.as_posix())
         else:
             self.exi_generator = None
+        self._periodic_task = None
+
+    async def start(self):
+        """Start the charge point and periodic metering task."""
+        # Start periodic meter value requests
+        self._periodic_task = asyncio.create_task(
+            self._periodic_meter_value_request())
+        await super().start()
+
+    async def _periodic_meter_value_request(self):
+        """Periodically send TriggerMessage to request MeterValues every second."""
+        # Wait a bit for the charge point to be fully initialized
+        await asyncio.sleep(5)
+        
+        while True:
+            try:
+                # Send TriggerMessage to request MeterValues
+                from ocpp.v201.enums import MessageTriggerEnumType
+                response = await self.trigger_message_req(
+                    requested_message=MessageTriggerEnumType.meter_values
+                )
+                logging.info(f"TriggerMessage response: {response}")
+            except Exception as e:
+                logging.error(f"Error sending TriggerMessage: {e}")
+            
+            # Wait 1 second before next request
+            await asyncio.sleep(1)
 
     @on(Action.boot_notification)
     def on_boot_notification(self, **kwargs):
