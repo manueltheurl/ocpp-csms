@@ -47,6 +47,7 @@ class CentralSystemBackend(QThread):
         self.running = False
         self.iso15118_certs = None
         self.reject_auth = False
+        self.charge_point = None  # Store the connected charge point
         
        
         # Default configuration
@@ -112,7 +113,14 @@ class CentralSystemBackend(QThread):
             logging.info(f"{charge_point_id} connected using OCPP2.0.1")
             cp = ChargePoint201(charge_point_id, websocket, iso15118_certs=self.iso15118_certs)
         
-        await cp.start()
+        # Store the charge point instance
+        self.charge_point = cp
+        
+        try:
+            await cp.start()
+        finally:
+            # Clear the charge point reference when disconnected
+            self.charge_point = None
     
     async def run_async(self):
         """Run the central system server asynchronously"""
@@ -210,6 +218,7 @@ class Controller(QObject):
     heartbeat_signal = Signal()
     ping_signal = Signal()
     meter_value_signal = Signal(dict)
+    status_notification_signal = Signal(dict)
     client_connected_signal = Signal(str)
     client_disconnected_signal = Signal(str)
     
@@ -220,12 +229,21 @@ class Controller(QObject):
         self.central_system = CentralSystemBackend()
         self.is_client_connected = False
         
+        # Timer for throttling SetChargingProfile messages (500ms debounce)
+        self.charging_profile_timer = QTimer()
+        self.charging_profile_timer.setSingleShot(True)
+        self.charging_profile_timer.setInterval(500)  # 500ms delay
+        self.charging_profile_timer.timeout.connect(self._send_charging_profile_delayed)
+        self.pending_charging_profile_value = None
+        
         # Register meter value callback
         ChargePoint16.meter_value_callback = self.on_meter_value_received
         # Register heartbeat callback
         ChargePoint16.heartbeat_callback = self.on_heartbeat_received
         # Register ping callback
         ChargePoint16.ping_callback = self.on_ping_received
+        # Register status notification callback
+        ChargePoint16.status_notification_callback = self.on_status_notification_received
         # Register connection status callbacks
         ChargePoint16.connection_established_callback = self.on_client_connected
         ChargePoint16.connection_closed_callback = self.on_client_disconnected
@@ -242,11 +260,13 @@ class Controller(QObject):
         self.heartbeat_signal.connect(self.flash_heartbeat_label)
         self.ping_signal.connect(self.flash_ping_label)
         self.meter_value_signal.connect(self.update_meter_values)
+        self.status_notification_signal.connect(self.update_cp_status)
         self.client_connected_signal.connect(self.handle_client_connected)
         self.client_disconnected_signal.connect(self.handle_client_disconnected)
         
         # Connect UI signals
-        self.view.sld_set_duty_cycle.valueChanged.connect(self.update_label_duty_cycle)
+        self.view.sld_set_charge_profile.valueChanged.connect(self.update_label_charge_profile)
+        self.view.sld_set_charge_profile.valueChanged.connect(self.send_set_charging_profile)
     
     def on_client_connected(self, charge_point_id):
         """Callback when OCPP client connects (called from worker thread)"""
@@ -322,6 +342,10 @@ class Controller(QObject):
         """Callback when meter values are received from charge point (called from worker thread)"""
         self.meter_value_signal.emit(data)
     
+    def on_status_notification_received(self, data):
+        """Callback when status notification is received from charge point (called from worker thread)"""
+        self.status_notification_signal.emit(data)
+    
     def update_meter_values(self, data):
         """Update GUI with meter values (runs in GUI thread)"""
         try:
@@ -342,6 +366,44 @@ class Controller(QObject):
         except Exception as e:
             logging.error(f"Error updating GUI with meter values: {e}")
     
+    def update_cp_status(self, data):
+        """Update GUI with Control Pilot status from StatusNotification (runs in GUI thread)"""
+        try:
+            status = data.get('status', 'Unknown')
+            connector_id = data.get('connector_id', 0)
+            error_code = data.get('error_code', 'NoError')
+            
+            # Map OCPP ChargePointStatus to human-readable CP state
+            status_text_map = {
+                'Available': 'Level A - No EV',
+                'Preparing': 'Level B - EV Connected',
+                'Charging': 'Level C/D - Charging',
+                'SuspendedEVSE': 'Suspended by EVSE',
+                'SuspendedEV': 'Suspended by EV',
+                'Finishing': 'Finishing',
+                'Reserved': 'Reserved',
+                'Unavailable': 'Level F - Unavailable',
+                'Faulted': 'Level E - Faulted'
+            }
+            
+            display_text = status_text_map.get(status, status)
+            
+            # Update GUI label
+            if hasattr(self.view, 'lbl_value_cp_state'):
+                self.view.lbl_value_cp_state.setText(display_text)
+                logging.info(f"Updated CP state label for connector {connector_id}: {display_text} ({status})")
+            
+            # Optionally add color coding based on status
+            if hasattr(self.view, 'frame_voltage_analog_pin_mcu_cp_in'):
+                if error_code != 'NoError' or status == 'Faulted':
+                    # Red for errors
+                    pass  # You could add: self.view.frame_voltage_analog_pin_mcu_cp_in.setStyleSheet("border: 2px solid red;")
+                elif status == 'Charging':
+                    # Green for charging
+                    pass  # You could add: self.view.frame_voltage_analog_pin_mcu_cp_in.setStyleSheet("border: 2px solid green;")
+        except Exception as e:
+            logging.error(f"Error updating CP status: {e}")
+    
     def start_central_system(self, **config):
         """Start the OCPP central system with given configuration"""
         self.central_system.configure(**config)
@@ -357,3 +419,85 @@ class Controller(QObject):
 
     def update_label_duty_cycle(self, value):
         self.view.lbl_set_duty_cycle.setText(f"Set Duty Cycle {int(value)}%")
+
+    def update_label_charge_profile(self, value):
+        if value == 0:
+            self.view.lbl_set_charge_profile.setText(f"Set charge profile: PLC communication only")
+        else:
+            if value < 6:
+                value = 6
+            elif value > 80:
+                value = 80
+            
+            self.view.lbl_set_charge_profile.setText(f"Set charge profile {int(value)}A")
+
+    def send_set_charging_profile(self, value):
+        """Throttle SetChargingProfile messages - only send after 500ms of no slider changes"""
+        # Store the pending value and restart the timer
+        self.pending_charging_profile_value = int(value)
+        self.charging_profile_timer.stop()
+        self.charging_profile_timer.start()
+    
+    def _send_charging_profile_delayed(self):
+        """Actually send the SetChargingProfile message after the timer expires"""
+        if self.pending_charging_profile_value is None:
+            return
+        
+        if not self.is_client_connected:
+            logging.warning("Cannot send SetChargingProfile: No OCPP client connected")
+            return
+        
+        ampere_limit = self.pending_charging_profile_value
+        logging.info(f"Sending SetChargingProfile with {ampere_limit}A limit")
+        
+        # Create a coroutine for sending the message
+        async def send_message():
+            try:
+                # Get the connected charge point from ChargePoint16
+                # We need to access the connected charge point instance
+                # Since the charge point is created in on_connect, we need to store it
+                # For now, we'll access it through the class (this might need adjustment)
+                
+                from ocpp.v16 import call
+                from datetime import datetime, timezone
+                
+                # Build the charging profile
+                # TxDefaultProfile on connector 0 = applies to all transactions as default
+                charging_profile = {
+                    "chargingProfileId": 1,
+                    "stackLevel": 0,
+                    "chargingProfilePurpose": "TxDefaultProfile",
+                    "chargingProfileKind": "Absolute",
+                    "chargingSchedule": {
+                        "chargingRateUnit": "A",
+                        "chargingSchedulePeriod": [
+                            {
+                                "startPeriod": 0,
+                                "limit": float(ampere_limit)
+                            }
+                        ]
+                    }
+                }
+                
+                payload = call.SetChargingProfile(
+                    connector_id=0,  # Connector 0 = charge point level, works without transaction
+                    cs_charging_profiles=charging_profile
+                )
+                
+                # We need to get the charge point instance
+                # This requires storing it when a client connects
+                if self.central_system.charge_point:
+                    response = await self.central_system.charge_point.set_charging_profile_req(payload)
+                    logging.info(f"SetChargingProfile response: {response}")
+                else:
+                    logging.error("No charge point instance available")
+                    
+            except Exception as e:
+                logging.error(f"Error sending SetChargingProfile: {e}", exc_info=True)
+        
+        # Schedule the coroutine in the central system's event loop
+        if self.central_system.loop and self.central_system.loop.is_running():
+            asyncio.run_coroutine_threadsafe(send_message(), self.central_system.loop)
+        else:
+            logging.error("Central system event loop is not running")
+

@@ -51,8 +51,8 @@
      <rect>
       <x>10</x>
       <y>70</y>
-      <width>351</width>
-      <height>41</height>
+      <width>511</width>
+      <height>81</height>
      </rect>
     </property>
     <property name="frameShape">
@@ -81,6 +81,32 @@
        <y>10</y>
        <width>101</width>
        <height>18</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>0V</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="lbl_desc_cp_state">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>50</y>
+       <width>431</width>
+       <height>18</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Resulting CP State:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="lbl_value_cp_state">
+     <property name="geometry">
+      <rect>
+       <x>230</x>
+       <y>50</y>
+       <width>221</width>
+       <height>20</height>
       </rect>
      </property>
      <property name="text">
@@ -117,51 +143,6 @@
      </property>
     </widget>
    </widget>
-   <widget class="QFrame" name="frame_set_duty_cycle">
-    <property name="geometry">
-     <rect>
-      <x>10</x>
-      <y>130</y>
-      <width>341</width>
-      <height>71</height>
-     </rect>
-    </property>
-    <property name="frameShape">
-     <enum>QFrame::Shape::StyledPanel</enum>
-    </property>
-    <property name="frameShadow">
-     <enum>QFrame::Shadow::Raised</enum>
-    </property>
-    <widget class="QLabel" name="lbl_set_duty_cycle">
-     <property name="geometry">
-      <rect>
-       <x>10</x>
-       <y>10</y>
-       <width>131</width>
-       <height>18</height>
-      </rect>
-     </property>
-     <property name="text">
-      <string>Set Duty Cycle 0%</string>
-     </property>
-    </widget>
-    <widget class="QSlider" name="sld_set_duty_cycle">
-     <property name="geometry">
-      <rect>
-       <x>10</x>
-       <y>40</y>
-       <width>160</width>
-       <height>16</height>
-      </rect>
-     </property>
-     <property name="maximum">
-      <number>100</number>
-     </property>
-     <property name="orientation">
-      <enum>Qt::Orientation::Horizontal</enum>
-     </property>
-    </widget>
-   </widget>
    <widget class="QFrame" name="frame_ping">
     <property name="geometry">
      <rect>
@@ -188,6 +169,51 @@
      </property>
      <property name="text">
       <string>Ping</string>
+     </property>
+    </widget>
+   </widget>
+   <widget class="QFrame" name="frame_set_charge_profile">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>180</y>
+      <width>341</width>
+      <height>71</height>
+     </rect>
+    </property>
+    <property name="frameShape">
+     <enum>QFrame::Shape::StyledPanel</enum>
+    </property>
+    <property name="frameShadow">
+     <enum>QFrame::Shadow::Raised</enum>
+    </property>
+    <widget class="QLabel" name="lbl_set_charge_profile">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>10</y>
+       <width>311</width>
+       <height>18</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Set charge profile: PLC communication only</string>
+     </property>
+    </widget>
+    <widget class="QSlider" name="sld_set_charge_profile">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>40</y>
+       <width>160</width>
+       <height>16</height>
+      </rect>
+     </property>
+     <property name="maximum">
+      <number>80</number>
+     </property>
+     <property name="orientation">
+      <enum>Qt::Orientation::Horizontal</enum>
      </property>
     </widget>
    </widget>

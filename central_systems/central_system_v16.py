@@ -41,6 +41,8 @@ class ChargePoint16(cp):
     heartbeat_callback = None
     # Class-level callback for ping
     ping_callback = None
+    # Class-level callback for status notification
+    status_notification_callback = None
     # Class-level callbacks for connection status
     connection_established_callback = None
     connection_closed_callback = None
@@ -158,6 +160,24 @@ class ChargePoint16(cp):
             return call_result.MeterValues()
     @on(Action.status_notification)
     def on_status_notification(self, **kwargs):
+        try:
+            connector_id = kwargs.get('connector_id', 0)
+            status = kwargs.get('status', 'Unknown')
+            error_code = kwargs.get('error_code', 'NoError')
+            
+            logging.info(f"📡 StatusNotification - Connector {connector_id}: {status} (ErrorCode: {error_code})")
+            
+            # Trigger callback if registered
+            if ChargePoint16.status_notification_callback:
+                ChargePoint16.status_notification_callback({
+                    'connector_id': connector_id,
+                    'status': status,
+                    'error_code': error_code,
+                    'raw_data': kwargs
+                })
+        except Exception as e:
+            logging.error(f"❌ Error processing StatusNotification: {e}")
+        
         return call_result.StatusNotification()
 
     @on(Action.start_transaction)
