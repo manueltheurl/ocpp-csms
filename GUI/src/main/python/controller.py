@@ -267,6 +267,8 @@ class Controller(QObject):
         # Connect UI signals
         self.view.sld_set_charge_profile.valueChanged.connect(self.update_label_charge_profile)
         self.view.sld_set_charge_profile.valueChanged.connect(self.send_set_charging_profile)
+        self.view.btn_soft_reset.clicked.connect(self.send_soft_reset)
+        self.view.btn_hard_reset.clicked.connect(self.send_hard_reset)
     
     def on_client_connected(self, charge_point_id):
         """Callback when OCPP client connects (called from worker thread)"""
@@ -496,6 +498,52 @@ class Controller(QObject):
                 logging.error(f"Error sending SetChargingProfile: {e}", exc_info=True)
         
         # Schedule the coroutine in the central system's event loop
+        if self.central_system.loop and self.central_system.loop.is_running():
+            asyncio.run_coroutine_threadsafe(send_message(), self.central_system.loop)
+        else:
+            logging.error("Central system event loop is not running")
+
+    def send_soft_reset(self):
+        """Send OCPP Soft Reset command to the charge point"""
+        if not self.is_client_connected:
+            logging.warning("Cannot send Reset: No OCPP client connected")
+            return
+        
+        logging.info("Sending Soft Reset command")
+        
+        async def send_message():
+            try:
+                if self.central_system.charge_point:
+                    response = await self.central_system.charge_point.reset_req(type="Soft")
+                    logging.info(f"Soft Reset response: {response}")
+                else:
+                    logging.error("No charge point instance available")
+            except Exception as e:
+                logging.error(f"Error sending Soft Reset: {e}", exc_info=True)
+        
+        if self.central_system.loop and self.central_system.loop.is_running():
+            asyncio.run_coroutine_threadsafe(send_message(), self.central_system.loop)
+        else:
+            logging.error("Central system event loop is not running")
+
+    def send_hard_reset(self):
+        """Send OCPP Hard Reset command to the charge point"""
+        if not self.is_client_connected:
+            logging.warning("Cannot send Reset: No OCPP client connected")
+            return
+        
+        logging.info("Sending Hard Reset command")
+        
+        async def send_message():
+            try:
+                if self.central_system.charge_point:
+                    response = await self.central_system.charge_point.reset_req(type="Hard")
+                    logging.info(f"Hard Reset response: {response}")
+                else:
+                    logging.error("No charge point instance available")
+            except Exception as e:
+                logging.error(f"Error sending Hard Reset: {e}", exc_info=True)
+        
         if self.central_system.loop and self.central_system.loop.is_running():
             asyncio.run_coroutine_threadsafe(send_message(), self.central_system.loop)
         else:

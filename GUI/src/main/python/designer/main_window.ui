@@ -217,6 +217,32 @@
      </property>
     </widget>
    </widget>
+   <widget class="QPushButton" name="btn_soft_reset">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>300</y>
+      <width>181</width>
+      <height>26</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Soft Reset Smartyplug</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="btn_hard_reset">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>340</y>
+      <width>181</width>
+      <height>26</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Hard Reset Smartyplug</string>
+    </property>
+   </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">

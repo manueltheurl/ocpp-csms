@@ -17,8 +17,8 @@ from PySide6.QtGui import (QAction, QBrush, QColor, QConicalGradient,
     QPainter, QPalette, QPixmap, QRadialGradient,
     QTransform)
 from PySide6.QtWidgets import (QApplication, QFrame, QLabel, QMainWindow,
-    QMenu, QMenuBar, QSizePolicy, QSlider,
-    QStatusBar, QWidget)
+    QMenu, QMenuBar, QPushButton, QSizePolicy,
+    QSlider, QStatusBar, QWidget)
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
@@ -82,6 +82,12 @@ class Ui_MainWindow(object):
         self.sld_set_charge_profile.setGeometry(QRect(10, 40, 160, 16))
         self.sld_set_charge_profile.setMaximum(80)
         self.sld_set_charge_profile.setOrientation(Qt.Orientation.Horizontal)
+        self.btn_soft_reset = QPushButton(self.centralwidget)
+        self.btn_soft_reset.setObjectName(u"btn_soft_reset")
+        self.btn_soft_reset.setGeometry(QRect(10, 300, 181, 26))
+        self.btn_hard_reset = QPushButton(self.centralwidget)
+        self.btn_hard_reset.setObjectName(u"btn_hard_reset")
+        self.btn_hard_reset.setGeometry(QRect(10, 340, 181, 26))
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QMenuBar(MainWindow)
         self.menubar.setObjectName(u"menubar")
@@ -110,6 +116,8 @@ class Ui_MainWindow(object):
         self.lbl_heartbeat.setText(QCoreApplication.translate("MainWindow", u"Heartbeat", None))
         self.lbl_ping.setText(QCoreApplication.translate("MainWindow", u"Ping", None))
         self.lbl_set_charge_profile.setText(QCoreApplication.translate("MainWindow", u"Set charge profile: PLC communication only", None))
+        self.btn_soft_reset.setText(QCoreApplication.translate("MainWindow", u"Soft Reset Smartyplug", None))
+        self.btn_hard_reset.setText(QCoreApplication.translate("MainWindow", u"Hard Reset Smartyplug", None))
         self.menuSmartyPlug_CSMS.setTitle(QCoreApplication.translate("MainWindow", u"SmartyPlug CSMS", None))
     # retranslateUi
 
