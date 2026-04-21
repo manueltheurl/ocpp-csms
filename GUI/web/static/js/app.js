@@ -25,6 +25,8 @@ const elements = {
     chargeProfileLabel: document.getElementById('charge-profile-label'),
     heartbeatIndicator: document.getElementById('heartbeat-indicator'),
     pingIndicator: document.getElementById('ping-indicator'),
+    btnRemoteStart: document.getElementById('btn-remote-start'),
+    btnRemoteStop: document.getElementById('btn-remote-stop'),
     btnStartCharge: document.getElementById('btn-start-charge'),
     btnStartDischarge: document.getElementById('btn-start-discharge'),
     btnStopCharge: document.getElementById('btn-stop-charge'),
@@ -123,6 +125,10 @@ function setupEventListeners() {
         }, 500);
     });
     
+    // Transaction control buttons
+    elements.btnRemoteStart.addEventListener('click', () => remoteStartTransaction());
+    elements.btnRemoteStop.addEventListener('click', () => remoteStopTransaction());
+    
     // Charge control buttons
     elements.btnStartCharge.addEventListener('click', () => startCharging());
     elements.btnStartDischarge.addEventListener('click', () => startDischarging());
@@ -169,6 +175,67 @@ async function setChargingProfile(ampere) {
     } catch (error) {
         console.error('Error setting charging profile:', error);
         showToast('Error setting charging profile', 'error');
+    }
+}
+
+// Remote start transaction
+async function remoteStartTransaction() {
+    if (!state.connected) {
+        showToast('Cannot start transaction: No OCPP client connected', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/transaction/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                connector_id: 1,
+                id_tag: 'WEB_INTERFACE'
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast(data.message, 'success');
+        } else {
+            showToast(data.message, 'error');
+        }
+    } catch (error) {
+        console.error('Error starting transaction:', error);
+        showToast('Error starting transaction', 'error');
+    }
+}
+
+// Remote stop transaction
+async function remoteStopTransaction() {
+    if (!state.connected) {
+        showToast('Cannot stop transaction: No OCPP client connected', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/transaction/stop', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast(data.message, 'success');
+        } else {
+            showToast(data.message, 'error');
+        }
+    } catch (error) {
+        console.error('Error stopping transaction:', error);
+        showToast('Error stopping transaction', 'error');
     }
 }
 

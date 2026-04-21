@@ -20,8 +20,9 @@ from pathlib import Path
 import sys
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum, IntEnum
+
 
 # Add parent directory to path to import central_system modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
@@ -252,6 +253,7 @@ state = {
     'soc': '0 %',
     'cp_state': 'Unknown',
     'charge_profile': 0,
+    'transaction_id': 0,
     'last_heartbeat': None,
     'last_ping': None,
     'temperatures': {
@@ -275,6 +277,21 @@ def on_ping_received():
     state['last_ping'] = datetime.now().isoformat()
     socketio.emit('ping', {'timestamp': state['last_ping']})
     logging.info("Ping received")
+
+
+def on_transaction_event(data):
+    """Callback when transaction events occur (start/stop)"""
+    event = data.get('event')
+    transaction_id = data.get('transaction_id', 0)
+    
+    if event == 'start':
+        state['transaction_id'] = transaction_id
+        logging.info(f"🔋 Transaction {transaction_id} started")
+        socketio.emit('transaction_started', {'transaction_id': transaction_id})
+    elif event == 'stop':
+        logging.info(f"🛑 Transaction {transaction_id} stopped")
+        socketio.emit('transaction_stopped', {'transaction_id': transaction_id})
+        state['transaction_id'] = 0  # Clear transaction ID
 
 
 def on_meter_value_received(data):
@@ -369,6 +386,7 @@ ChargePoint.meter_value_callback = on_meter_value_received
 ChargePoint.status_notification_callback = on_status_notification_received
 ChargePoint.connection_established_callback = on_client_connected
 ChargePoint.connection_closed_callback = on_client_disconnected
+ChargePoint.transaction_callback = on_transaction_event
 
 
 @app.route('/')
@@ -411,7 +429,8 @@ def set_charging_profile():
                 # Create charging schedule
                 charging_schedule = ChargingSchedule(
                     charging_rate_unit=ChargingRateUnitType.amps,
-                    charging_schedule_period=[charging_schedule_period]
+                    charging_schedule_period=[charging_schedule_period],
+                    start_schedule=datetime.now(timezone.utc).isoformat()
                 )
                 
                 # Create charging profile
@@ -489,7 +508,8 @@ def start_charging():
                 
                 charging_schedule = ChargingSchedule(
                     charging_rate_unit=ChargingRateUnitType.amps,
-                    charging_schedule_period=[charging_schedule_period]
+                    charging_schedule_period=[charging_schedule_period],
+                    start_schedule=datetime.now(timezone.utc).isoformat()
                 )
                 
                 charging_profile = ChargingProfile(
@@ -549,7 +569,8 @@ def start_discharging():
                 
                 charging_schedule = ChargingSchedule(
                     charging_rate_unit=ChargingRateUnitType.amps,
-                    charging_schedule_period=[charging_schedule_period]
+                    charging_schedule_period=[charging_schedule_period],
+                    start_schedule=datetime.now(timezone.utc).isoformat()
                 )
                 
                 charging_profile = ChargingProfile(
@@ -606,7 +627,8 @@ def stop_charging():
                 
                 charging_schedule = ChargingSchedule(
                     charging_rate_unit=ChargingRateUnitType.amps,
-                    charging_schedule_period=[charging_schedule_period]
+                    charging_schedule_period=[charging_schedule_period],
+                    start_schedule=datetime.now(timezone.utc).isoformat()
                 )
                 
                 charging_profile = ChargingProfile(
@@ -636,6 +658,89 @@ def stop_charging():
     if central_system.loop and central_system.loop.is_running():
         asyncio.run_coroutine_threadsafe(send_message(), central_system.loop)
         return jsonify({'success': True, 'message': 'Charging stopped'})
+    else:
+        return jsonify({'success': False, 'message': 'Central system not running'}), 500
+
+
+@app.route('/api/transaction/start', methods=['POST'])
+def remote_start_transaction():
+    """Start a charging transaction remotely"""
+    data = request.json or {}
+    connector_id = int(data.get('connector_id', 1))
+    id_tag = data.get('id_tag', 'WEB_INTERFACE')
+    
+    if not state['connected']:
+        return jsonify({'success': False, 'message': 'No OCPP client connected'}), 400
+    
+    async def send_message():
+        try:
+            if OCPP_VERSION == "1.6":
+                from ocpp.v16 import call
+                
+                # RemoteStartTransaction with optional charging profile
+                payload = call.RemoteStartTransaction(
+                    connector_id=connector_id,
+                    id_tag=id_tag
+                )
+                
+                if central_system.charge_point:
+                    response = await central_system.charge_point.remote_start_transaction_req(
+                        connector_id=connector_id,
+                        id_tag=id_tag
+                    )
+                    logging.info(f"RemoteStartTransaction response: {response}")
+                else:
+                    logging.error("No charge point instance available")
+            elif OCPP_VERSION == "2.0.1":
+                # OCPP 2.0.1 implementation
+                pass
+        except Exception as e:
+            logging.error(f"Error sending RemoteStartTransaction: {e}", exc_info=True)
+    
+    if central_system.loop and central_system.loop.is_running():
+        asyncio.run_coroutine_threadsafe(send_message(), central_system.loop)
+        return jsonify({'success': True, 'message': f'Transaction started on connector {connector_id}'})
+    else:
+        return jsonify({'success': False, 'message': 'Central system not running'}), 500
+
+
+@app.route('/api/transaction/stop', methods=['POST'])
+def remote_stop_transaction():
+    """Stop a charging transaction remotely"""
+    data = request.json or {}
+    transaction_id = int(data.get('transaction_id', state.get('transaction_id', 0)))
+    
+    if not state['connected']:
+        return jsonify({'success': False, 'message': 'No OCPP client connected'}), 400
+    
+    if transaction_id == 0:
+        return jsonify({'success': False, 'message': 'No active transaction'}), 400
+    
+    async def send_message():
+        try:
+            if OCPP_VERSION == "1.6":
+                from ocpp.v16 import call
+                
+                payload = call.RemoteStopTransaction(
+                    transaction_id=transaction_id
+                )
+                
+                if central_system.charge_point:
+                    response = await central_system.charge_point.remote_stop_transaction_req(
+                        transaction_id=transaction_id
+                    )
+                    logging.info(f"RemoteStopTransaction response: {response}")
+                else:
+                    logging.error("No charge point instance available")
+            elif OCPP_VERSION == "2.0.1":
+                # OCPP 2.0.1 implementation
+                pass
+        except Exception as e:
+            logging.error(f"Error sending RemoteStopTransaction: {e}", exc_info=True)
+    
+    if central_system.loop and central_system.loop.is_running():
+        asyncio.run_coroutine_threadsafe(send_message(), central_system.loop)
+        return jsonify({'success': True, 'message': f'Transaction {transaction_id} stopped'})
     else:
         return jsonify({'success': False, 'message': 'Central system not running'}), 500
 

@@ -46,6 +46,8 @@ class ChargePoint16(cp):
     # Class-level callbacks for connection status
     connection_established_callback = None
     connection_closed_callback = None
+    # Class-level callback for transaction events
+    transaction_callback = None
     
     def __init__(self, *args, iso15118_certs, **kwargs):
         super().__init__(*args, **kwargs)
@@ -188,11 +190,36 @@ class ChargePoint16(cp):
 
     @on(Action.start_transaction)
     def on_start_transaction(self, **kwargs):
+        transaction_id = 1  # Generate transaction ID (could be incremented or use timestamp)
         id_tag_info = IdTagInfo(status=AuthorizationStatus.accepted)
-        return call_result.StartTransaction(transaction_id=1, id_tag_info=id_tag_info)
+        
+        # Notify via callback
+        if ChargePoint16.transaction_callback:
+            ChargePoint16.transaction_callback({
+                'event': 'start',
+                'transaction_id': transaction_id,
+                'connector_id': kwargs.get('connector_id', 1),
+                'id_tag': kwargs.get('id_tag', 'unknown'),
+                'timestamp': kwargs.get('timestamp', datetime.now(timezone.utc).isoformat())
+            })
+        
+        logging.info(f"🔋 Transaction {transaction_id} started on connector {kwargs.get('connector_id', 1)}")
+        return call_result.StartTransaction(transaction_id=transaction_id, id_tag_info=id_tag_info)
 
     @on(Action.stop_transaction)
     def on_stop_transaction(self, **kwargs):
+        transaction_id = kwargs.get('transaction_id', 0)
+        
+        # Notify via callback
+        if ChargePoint16.transaction_callback:
+            ChargePoint16.transaction_callback({
+                'event': 'stop',
+                'transaction_id': transaction_id,
+                'timestamp': kwargs.get('timestamp', datetime.now(timezone.utc).isoformat()),
+                'meter_stop': kwargs.get('meter_stop', 0)
+            })
+        
+        logging.info(f"🛑 Transaction {transaction_id} stopped")
         return call_result.StopTransaction()
 
     @on(Action.diagnostics_status_notification)
