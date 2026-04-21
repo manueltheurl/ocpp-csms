@@ -26,6 +26,18 @@ logging.basicConfig(level=logging.INFO)
 
 
 class ChargePoint201(cp):
+    # Class-level callback for meter values
+    meter_value_callback = None
+    # Class-level callback for heartbeat
+    heartbeat_callback = None
+    # Class-level callback for ping
+    ping_callback = None
+    # Class-level callback for status notification
+    status_notification_callback = None
+    # Class-level callbacks for connection status
+    connection_established_callback = None
+    connection_closed_callback = None
+    
     def __init__(self, *args, iso15118_certs, **kwargs):
         super().__init__(*args, **kwargs)
         self.iso15118_certs = iso15118_certs
@@ -38,29 +50,26 @@ class ChargePoint201(cp):
 
     async def start(self):
         """Start the charge point and periodic metering task."""
-        # Start periodic meter value requests
-        self._periodic_task = asyncio.create_task(
-            self._periodic_meter_value_request())
-        await super().start()
+        # Notify connection established
+        if ChargePoint201.connection_established_callback:
+            ChargePoint201.connection_established_callback(self.id)
+        
+        # NOTE: Periodic TriggerMessage disabled - device sends MeterValues automatically
+        # The charge point is configured to send meter values every 3 seconds automatically
+        # via MeterValueSampleInterval configuration. Sending TriggerMessage causes
+        # connection issues as MicroOcpp library rejects them.
+        
+        try:
+            await super().start()
+        finally:
+            # Notify connection closed when start() completes (client disconnected)
+            if ChargePoint201.connection_closed_callback:
+                ChargePoint201.connection_closed_callback(self.id)
 
     async def _periodic_meter_value_request(self):
-        """Periodically send TriggerMessage to request MeterValues every second."""
-        # Wait a bit for the charge point to be fully initialized
-        await asyncio.sleep(5)
-        
-        while True:
-            try:
-                # Send TriggerMessage to request MeterValues
-                from ocpp.v201.enums import MessageTriggerEnumType
-                response = await self.trigger_message_req(
-                    requested_message=MessageTriggerEnumType.meter_values
-                )
-                logging.info(f"TriggerMessage response: {response}")
-            except Exception as e:
-                logging.error(f"Error sending TriggerMessage: {e}")
-            
-            # Wait 1 second before next request
-            await asyncio.sleep(1)
+        """DISABLED: Device sends MeterValues automatically based on MeterValueSampleInterval config."""
+        # Not used - charge point sends meter values autonomously
+        pass
 
     @on(Action.boot_notification)
     def on_boot_notification(self, **kwargs):
@@ -70,10 +79,31 @@ class ChargePoint201(cp):
 
     @on(Action.status_notification)
     def on_status_notification(self, **kwargs):
+        try:
+            evse_id = kwargs.get('evse_id', 0)
+            connector_id = kwargs.get('connector_id', 0)
+            status = kwargs.get('connector_status', 'Unknown')
+            
+            logging.info(f"📡 StatusNotification - EVSE {evse_id}, Connector {connector_id}: {status}")
+            
+            # Trigger callback if registered
+            if ChargePoint201.status_notification_callback:
+                ChargePoint201.status_notification_callback({
+                    'evse_id': evse_id,
+                    'connector_id': connector_id,
+                    'status': status,
+                    'raw_data': kwargs
+                })
+        except Exception as e:
+            logging.error(f"❌ Error processing StatusNotification: {e}")
+        
         return call_result.StatusNotification()
 
     @on(Action.heartbeat)
     def on_heartbeat(self, **kwargs):
+        # Call the callback if registered
+        if ChargePoint201.heartbeat_callback:
+            ChargePoint201.heartbeat_callback()
         return call_result.Heartbeat(current_time=datetime.now(timezone.utc).isoformat())
 
     @on(Action.authorize)
@@ -98,11 +128,166 @@ class ChargePoint201(cp):
 
     @on(Action.transaction_event)
     def on_transaction_event(self, **kwargs):
-        return call_result.TransactionEvent()
+        try:
+            # Log RAW TransactionEvent for debugging
+            logging.info(f"🔍 RAW TransactionEvent received: {kwargs}")
+            
+            event_type = kwargs.get('event_type', 'unknown')
+            transaction_info = kwargs.get('transaction_info', {})
+            transaction_id = transaction_info.get('transaction_id', 'unknown')
+            evse_id = kwargs.get('evse', {}).get('id', 'unknown')
+            
+            logging.info(f"📊 TransactionEvent: type={event_type}, transaction_id={transaction_id}, evse_id={evse_id}")
+            
+            # Extract meter values from the transaction event
+            meter_value = kwargs.get('meter_value', [])
+            
+            energy_value = None
+            voltage_value = None
+            soc_value = None
+            
+            if meter_value:
+                logging.info(f"   📈 Processing {len(meter_value)} meter value(s) in TransactionEvent:")
+                for mv in meter_value:
+                    timestamp = mv.get('timestamp', 'unknown')
+                    sampled_values = mv.get('sampled_value', [])
+                    logging.info(f"      Timestamp: {timestamp}")
+                    for sv in sampled_values:
+                        value = sv.get('value', 'N/A')
+                        measurand = sv.get('measurand', 'N/A')
+                        unit_of_measure = sv.get('unit_of_measure', {})
+                        unit = unit_of_measure.get('unit', 'N/A') if unit_of_measure else 'N/A'
+                        location = sv.get('location', 'N/A')
+                        phase = sv.get('phase', 'N/A')
+                        logging.info(f"         {measurand}: {value} {unit} (Location: {location}, Phase: {phase})")
+                        
+                        if measurand == 'Energy.Active.Import.Register':
+                            energy_value = value
+                            logging.info(f"         ⚡ Energy: {value} {unit}")
+                        elif measurand == 'Voltage':
+                            voltage_value = value
+                            logging.info(f"         ⚡ Voltage: {value} {unit}")
+                        elif measurand == 'SoC':
+                            soc_value = value
+                            logging.info(f"         🔋 SoC: {value} {unit}")
+                
+                # Call the callback if we have meter values
+                if ChargePoint201.meter_value_callback and (energy_value or voltage_value or soc_value):
+                    logging.info(f"   📤 Triggering meter_value_callback - Energy: {energy_value}, Voltage: {voltage_value}, SoC: {soc_value}")
+                    ChargePoint201.meter_value_callback({
+                        'evse_id': evse_id,
+                        'energy': energy_value,
+                        'voltage': voltage_value,
+                        'soc': soc_value,
+                        'raw_data': kwargs
+                    })
+            
+            return call_result.TransactionEvent()
+        except Exception as e:
+            logging.error(f"❌ Error processing TransactionEvent: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
+            return call_result.TransactionEvent()
 
     @on(Action.meter_values)
     def on_meter_values(self, **kwargs):
-        return call_result.MeterValues()
+        try:
+            # Log the RAW received data for debugging
+            logging.info(f"🔍 RAW MeterValues received: {kwargs}")
+            
+            # Log the received meter values for debugging
+            evse_id = kwargs.get('evse_id', 'unknown')
+            meter_value = kwargs.get('meter_value', [])
+            
+            energy_value = None
+            voltage_value = None
+            soc_value = None
+            temperatures = {
+                'L1': None,
+                'L2': None,
+                'L3': None,
+                'N': None
+            }
+            
+            if not meter_value:
+                logging.warning(f"⚠️  Empty MeterValues received for EVSE {evse_id}")
+            else:
+                logging.info(f"✅ MeterValues received for EVSE {evse_id}:")
+                for mv in meter_value:
+                    timestamp = mv.get('timestamp', 'unknown')
+                    sampled_values = mv.get('sampled_value', [])
+                    logging.info(f"   Timestamp: {timestamp}")
+                    for sv in sampled_values:
+                        value = sv.get('value', 'N/A')
+                        measurand = sv.get('measurand', 'N/A')
+                        unit_of_measure = sv.get('unit_of_measure', {})
+                        unit = unit_of_measure.get('unit', 'N/A') if unit_of_measure else 'N/A'
+                        location = sv.get('location', 'N/A')
+                        phase = sv.get('phase', 'N/A')
+                        logging.info(f"     {measurand}: {value} {unit} (Location: {location}, Phase: {phase})")
+                        
+                        if measurand == 'Energy.Active.Import.Register':
+                            energy_value = value
+                        elif measurand == 'Voltage':
+                            voltage_value = value
+                            logging.info(f"     ⚡ Voltage: {value} {unit}")
+                        elif measurand == 'SoC':
+                            soc_value = value
+                            logging.info(f"     🔋 SoC: {value} {unit}")
+                        
+                        # Extract temperature values - handle both formats:
+                        # Format 1: measurand="Temperature", phase="L1"
+                        # Format 2: measurand="Temperature.Outlet.L1", location="Outlet"
+                        if measurand.startswith('Temperature'):
+                            try:
+                                temp_value = float(value)
+                                
+                                # Check phase field first (OCPP 2.0.1 style)
+                                if phase == 'L1':
+                                    temperatures['L1'] = temp_value
+                                    logging.info(f"     🌡️  Temperature L1: {temp_value}°C")
+                                elif phase == 'L2':
+                                    temperatures['L2'] = temp_value
+                                    logging.info(f"     🌡️  Temperature L2: {temp_value}°C")
+                                elif phase == 'L3':
+                                    temperatures['L3'] = temp_value
+                                    logging.info(f"     🌡️  Temperature L3: {temp_value}°C")
+                                elif phase == 'N':
+                                    temperatures['N'] = temp_value
+                                    logging.info(f"     🌡️  Temperature N: {temp_value}°C")
+                                # Check measurand string (MicroOcpp style: Temperature.Outlet.L1)
+                                elif '.L1' in measurand:
+                                    temperatures['L1'] = temp_value
+                                    logging.info(f"     🌡️  Temperature L1: {temp_value}°C")
+                                elif '.L2' in measurand:
+                                    temperatures['L2'] = temp_value
+                                    logging.info(f"     🌡️  Temperature L2: {temp_value}°C")
+                                elif '.L3' in measurand:
+                                    temperatures['L3'] = temp_value
+                                    logging.info(f"     🌡️  Temperature L3: {temp_value}°C")
+                                elif '.N' in measurand:
+                                    temperatures['N'] = temp_value
+                                    logging.info(f"     🌡️  Temperature N: {temp_value}°C")
+                            except (ValueError, TypeError) as e:
+                                logging.warning(f"Could not parse temperature value: {value}")
+
+            # Call the callback if registered
+            if ChargePoint201.meter_value_callback:
+                ChargePoint201.meter_value_callback({
+                    'evse_id': evse_id,
+                    'energy': energy_value,
+                    'voltage': voltage_value,
+                    'soc': soc_value,
+                    'temperatures': temperatures,
+                    'raw_data': kwargs
+                })
+            
+            return call_result.MeterValues()
+        except Exception as e:
+            logging.error(f"❌ Error processing MeterValues: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
+            return call_result.MeterValues()
 
     @on(Action.notify_charging_limit)
     def on_notify_charging_limit(self, **kwargs):
@@ -169,6 +354,41 @@ class ChargePoint201(cp):
 
     @on(Action.data_transfer)
     def on_data_transfer(self, **kwargs):
+        try:
+            vendor_id = kwargs.get('vendor_id', 'Unknown')
+            message_id = kwargs.get('message_id', 'Unknown')
+            data = kwargs.get('data', {})
+            
+            logging.info(f"📦 DataTransfer received - VendorId: {vendor_id}, MessageId: {message_id}")
+            
+            # Handle temperature data
+            if vendor_id == 'SmartyPlugger' and message_id == 'TemperatureData':
+                logging.info(f"🌡️  Temperature Data:")
+
+                temperatures = {
+                    'L1': data.get('l1'),
+                    'L2': data.get('l2'),
+                    'L3': data.get('l3'),
+                    'N': data.get('n')
+                }
+                
+                for phase, temp in temperatures.items():
+                    if temp is not None:
+                        logging.info(f"      Phase {phase}: {temp}°C")
+                
+                # Trigger meter value callback if registered (for GUI display)
+                if ChargePoint201.meter_value_callback:
+                    # Format temperature data to match meter value callback expectations
+                    ChargePoint201.meter_value_callback({
+                        'temperatures': temperatures,
+                        'source': 'DataTransfer'
+                    })
+            else:
+                logging.info(f"   Data: {data}")
+                
+        except Exception as e:
+            logging.error(f"❌ Error processing DataTransfer: {e}")
+        
         return call_result.DataTransfer(status=GenericStatusEnumType.accepted, data="")
 
     async def set_variables_req(self, **kwargs):

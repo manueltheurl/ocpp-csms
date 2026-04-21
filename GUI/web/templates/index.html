@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCPP CSMS Control Panel</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="logo">
+                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    OCPP CSMS
+                </h1>
+                <div class="header-status">
+                    <div id="connection-status" class="status-badge status-disconnected">
+                        <span class="status-indicator"></span>
+                        <span id="status-text">Disconnected</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Status Grid -->
+            <div class="grid">
+                <!-- Connection Status Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Connection Status</h2>
+                    </div>
+                    <div class="card-content">
+                        <div class="info-group">
+                            <label>Charge Point ID</label>
+                            <div id="charge-point-id" class="info-value">—</div>
+                        </div>
+                        <div class="status-indicators">
+                            <div class="indicator-item">
+                                <div id="heartbeat-indicator" class="indicator">
+                                    <div class="indicator-pulse"></div>
+                                </div>
+                                <span>Heartbeat</span>
+                            </div>
+                            <div class="indicator-item">
+                                <div id="ping-indicator" class="indicator">
+                                    <div class="indicator-pulse"></div>
+                                </div>
+                                <span>Ping</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Voltage & CP State Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Charge Point Measurements</h2>
+                    </div>
+                    <div class="card-content">
+                        <div class="info-group">
+                            <label>Energy</label>
+                            <div id="energy-value" class="metric-value">0 Wh</div>
+                        </div>
+                        <div class="info-group">
+                            <label>Voltage (CP Analog Pin)</label>
+                            <div id="voltage-value" class="metric-value">0 V</div>
+                        </div>
+                        <div class="info-group">
+                            <label>State of Charge (SoC)</label>
+                            <div id="soc-value" class="metric-value">0 %</div>
+                        </div>
+                        <div class="info-group">
+                            <label>Resulting CP State</label>
+                            <div id="cp-state-value" class="info-value">Unknown</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Temperature Monitoring Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Temperature Monitoring</h2>
+                    </div>
+                    <div class="card-content">
+                        <div class="info-group">
+                            <label>L1 Temperature</label>
+                            <div id="temp-l1" class="metric-value">—</div>
+                        </div>
+                        <div class="info-group">
+                            <label>L2 Temperature</label>
+                            <div id="temp-l2" class="metric-value">—</div>
+                        </div>
+                        <div class="info-group">
+                            <label>L3 Temperature</label>
+                            <div id="temp-l3" class="metric-value">—</div>
+                        </div>
+                        <div class="info-group">
+                            <label>N Temperature</label>
+                            <div id="temp-n" class="metric-value">—</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charging Profile Card -->
+                <div class="card card-full-width">
+                    <div class="card-header">
+                        <h2 class="card-title">Charging Profile</h2>
+                    </div>
+                    <div class="card-content">
+                        <div class="slider-group">
+                            <label id="charge-profile-label">Set charge profile: PLC communication only</label>
+                            <div class="slider-container">
+                                <input type="range" id="charge-profile-slider" min="0" max="80" value="0" class="slider">
+                                <div class="slider-labels">
+                                    <span>0A</span>
+                                    <span>PLC Only</span>
+                                    <span>80A</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Control Actions Card -->
+                <div class="card card-full-width">
+                    <div class="card-header">
+                        <h2 class="card-title">Control Actions</h2>
+                    </div>
+                    <div class="card-content">
+                        <div class="button-group">
+                            <button id="btn-start-charge" class="btn btn-success">
+                                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                                Start Charging (16A)
+                            </button>
+                            <button id="btn-start-discharge" class="btn btn-success">
+                                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                                Discharge (15A)
+                            </button>
+                            <button id="btn-stop-charge" class="btn btn-warning">
+                                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                                Stop Charging
+                            </button>
+                            <button id="btn-soft-reset" class="btn btn-primary">
+                                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                Soft Reset
+                            </button>
+                            <button id="btn-hard-reset" class="btn btn-danger">
+                                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                Hard Reset
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Energy Flow Visualization -->
+            <div class="card card-full-width energy-flow-card">
+                <div class="card-header">
+                    <h2 class="card-title">Energy Flow</h2>
+                    <div class="energy-status-badge">Normal</div>
+                </div>
+                <div class="card-content">
+                    <div class="energy-flow-diagram">
+                        <!-- PV Node (Top) -->
+                        <div class="energy-node energy-node-pv node-position-top">
+                            <div class="node-circle">
+                                <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <rect x="3" y="3" width="7" height="7" stroke-width="2"/>
+                                    <rect x="3" y="14" width="7" height="7" stroke-width="2"/>
+                                    <rect x="14" y="3" width="7" height="7" stroke-width="2"/>
+                                    <rect x="14" y="14" width="7" height="7" stroke-width="2"/>
+                                    <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+                                </svg>
+                                <div class="node-value" id="pv-power">0,000</div>
+                                <div class="node-unit">kW</div>
+                            </div>
+                            <div class="node-label">Photovoltaik</div>
+                        </div>
+
+                        <!-- EV Battery Node (Left) -->
+                        <div class="energy-node energy-node-battery node-position-left">
+                            <div class="node-circle">
+                                <div class="node-battery">
+                                    <div class="battery-icon">
+                                        <div class="battery-level" id="ev-battery-level" style="width: 0%"></div>
+                                    </div>
+                                    <div class="battery-percent" id="ev-battery-percent">0%</div>
+                                </div>
+                                <div class="node-value" id="battery-power">0,000</div>
+                                <div class="node-unit">kW</div>
+                            </div>
+                            <div class="node-label">EV Battery</div>
+                        </div>
+
+                        <!-- Grid Node (Right) -->
+                        <div class="energy-node energy-node-grid node-position-right">
+                            <div class="node-circle">
+                                <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                                <div class="node-value" id="grid-power">0,000</div>
+                                <div class="node-unit">kW</div>
+                            </div>
+                            <div class="node-label">Grid</div>
+                        </div>
+
+                        <!-- Consumption Node (Bottom) -->
+                        <div class="energy-node energy-node-consumption node-position-bottom">
+                            <div class="node-circle">
+                                <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                                </svg>
+                                <div class="node-value" id="consumption-power">0,000</div>
+                                <div class="node-unit">kW</div>
+                            </div>
+                            <div class="node-label">Consumption</div>
+                        </div>
+                    </div>
+
+                    <!-- Energy Statistics -->
+                    <div class="energy-stats">
+                        <div class="stat-box">
+                            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            <div class="stat-content">
+                                <div class="stat-value" id="today-energy">0,00 <span class="stat-unit">kWh</span></div>
+                                <div class="stat-label">Energy Today</div>
+                            </div>
+                        </div>
+                        <div class="stat-box">
+                            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                            </svg>
+                            <div class="stat-content">
+                                <div class="stat-value" id="today-revenue">€ 0,00</div>
+                                <div class="stat-label">Revenue Today</div>
+                            </div>
+                        </div>
+                        <div class="stat-box">
+                            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            <div class="stat-content">
+                                <div class="stat-value" id="month-energy">0,00 <span class="stat-unit">kWh</span></div>
+                                <div class="stat-label">Energy This Month</div>
+                            </div>
+                        </div>
+                        <div class="stat-box">
+                            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                            </svg>
+                            <div class="stat-content">
+                                <div class="stat-value" id="total-energy">0,00 <span class="stat-unit">kWh</span></div>
+                                <div class="stat-label">Total Energy</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>OCPP CSMS Web Interface &copy; 2026 | Real-time monitoring and control</p>
+        </footer>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

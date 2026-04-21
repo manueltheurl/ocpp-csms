@@ -58,14 +58,10 @@ class ChargePoint16(cp):
         self._periodic_task = None
 
     async def start(self):
-        """Start the charge point and periodic metering task."""
+        """Start the charge point."""
         # Notify connection established
         if ChargePoint16.connection_established_callback:
             ChargePoint16.connection_established_callback(self.id)
-        
-        # Start periodic meter value requests
-        self._periodic_task = asyncio.create_task(
-            self._periodic_meter_value_request())
         
         try:
             await super().start()
@@ -73,26 +69,6 @@ class ChargePoint16(cp):
             # Notify connection closed when start() completes (client disconnected)
             if ChargePoint16.connection_closed_callback:
                 ChargePoint16.connection_closed_callback(self.id)
-
-    async def _periodic_meter_value_request(self):
-        """Periodically send TriggerMessage to request MeterValues every second."""
-        # Wait a bit for the charge point to be fully initialized
-        await asyncio.sleep(5)
-        
-        while True:
-            try:
-                # Send TriggerMessage to request MeterValues for connector 0
-                from ocpp.v16.enums import MessageTrigger
-                response = await self.trigger_message_req(
-                    requested_message=MessageTrigger.meter_values,
-                    connector_id=1
-                )
-                logging.info(f"TriggerMessage response: {response}")
-            except Exception as e:
-                logging.error(f"Error sending TriggerMessage: {e}")
-            
-            # Wait 1 second before next request
-            await asyncio.sleep(1)
 
     @on(Action.boot_notification)
     async def on_boot_notification(
@@ -105,7 +81,37 @@ class ChargePoint16(cp):
             status=RegistrationStatus.accepted,
         )
         
+        # After boot notification is accepted, request MeterValues and StatusNotification
+        asyncio.create_task(self._send_initial_trigger_messages())
+        
         return result
+    
+    async def _send_initial_trigger_messages(self):
+        """Send TriggerMessage requests for MeterValues and StatusNotification after boot."""
+        # Wait a bit for the charge point to be fully initialized
+        await asyncio.sleep(2)
+        
+        try:
+            from ocpp.v16.enums import MessageTrigger
+            
+            # Request StatusNotification
+            logging.info("Sending TriggerMessage for StatusNotification")
+            response = await self.trigger_message_req(
+                requested_message=MessageTrigger.status_notification,
+                connector_id=1
+            )
+            logging.info(f"TriggerMessage (StatusNotification) response: {response}")
+            
+            # Request MeterValues
+            logging.info("Sending TriggerMessage for MeterValues")
+            response = await self.trigger_message_req(
+                requested_message=MessageTrigger.meter_values,
+                connector_id=1
+            )
+            logging.info(f"TriggerMessage (MeterValues) response: {response}")
+            
+        except Exception as e:
+            logging.error(f"Error sending TriggerMessage: {e}")
 
     @on(Action.heartbeat)
     def on_heartbeat(self, **kwargs):
@@ -217,7 +223,14 @@ class ChargePoint16(cp):
     @on(Action.data_transfer)
     def on_data_transfer(self, **kwargs):
         req = call.DataTransfer(**kwargs)
-        if req.vendor_id == 'org.openchargealliance.iso15118pnc':
+        if req.vendor_id == 'SmartyPlugger':
+            # Handle SmartyPlugger vendor messages
+            logging.info(f"📨 DataTransfer from SmartyPlugger - Message: {req.message_id}, Data: {req.data}")
+            return call_result.DataTransfer(
+                status=DataTransferStatus.accepted,
+                data="OK"
+            )
+        elif req.vendor_id == 'org.openchargealliance.iso15118pnc':
             if (req.message_id == "Authorize"):
                 response = call_result201.Authorize(
                     id_token_info=IdTokenInfoType(
