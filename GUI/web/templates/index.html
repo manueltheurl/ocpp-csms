@@ -64,16 +64,8 @@
                     </div>
                     <div class="card-content">
                         <div class="info-group">
-                            <label>Energy</label>
-                            <div id="energy-value" class="metric-value">0 Wh</div>
-                        </div>
-                        <div class="info-group">
                             <label>Voltage (CP Analog Pin)</label>
                             <div id="voltage-value" class="metric-value">0 V</div>
-                        </div>
-                        <div class="info-group">
-                            <label>State of Charge (SoC)</label>
-                            <div id="soc-value" class="metric-value">0 %</div>
                         </div>
                         <div class="info-group">
                             <label>Resulting CP State</label>
@@ -107,22 +99,19 @@
                     </div>
                 </div>
 
-                <!-- Charging Profile Card -->
-                <div class="card card-full-width">
+                <!-- Miscellaneous Card -->
+                <div class="card">
                     <div class="card-header">
-                        <h2 class="card-title">Charging Profile</h2>
+                        <h2 class="card-title">Miscellaneous</h2>
                     </div>
                     <div class="card-content">
-                        <div class="slider-group">
-                            <label id="charge-profile-label">Set charge profile: PLC communication only</label>
-                            <div class="slider-container">
-                                <input type="range" id="charge-profile-slider" min="0" max="80" value="0" class="slider">
-                                <div class="slider-labels">
-                                    <span>0A</span>
-                                    <span>PLC Only</span>
-                                    <span>80A</span>
-                                </div>
-                            </div>
+                        <div class="info-group">
+                            <label>AC Detected</label>
+                            <div id="ac-detected" class="metric-value">—</div>
+                        </div>
+                        <div class="info-group">
+                            <label>Triggering on Power Outage</label>
+                            <div id="triggering-on-power-outage" class="metric-value">—</div>
                         </div>
                     </div>
                 </div>
@@ -159,12 +148,6 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
                                 </svg>
                                 Discharge (15A)
-                            </button>
-                            <button id="btn-stop-charge" class="btn btn-warning">
-                                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                                Stop Charging
                             </button>
                             <button id="btn-soft-reset" class="btn btn-primary">
                                 <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">

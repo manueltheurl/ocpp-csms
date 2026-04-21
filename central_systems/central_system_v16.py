@@ -48,6 +48,8 @@ class ChargePoint16(cp):
     connection_closed_callback = None
     # Class-level callback for transaction events
     transaction_callback = None
+    # Class-level callback for data transfer
+    data_transfer_callback = None
     
     def __init__(self, *args, iso15118_certs, **kwargs):
         super().__init__(*args, **kwargs)
@@ -253,6 +255,19 @@ class ChargePoint16(cp):
         if req.vendor_id == 'SmartyPlugger':
             # Handle SmartyPlugger vendor messages
             logging.info(f"📨 DataTransfer from SmartyPlugger - Message: {req.message_id}, Data: {req.data}")
+            
+            # Parse data and trigger callback if Heartbeat message
+            if req.message_id == 'Heartbeat' and req.data and ChargePoint16.data_transfer_callback:
+                try:
+                    data = json.loads(req.data)
+                    ChargePoint16.data_transfer_callback({
+                        'vendor_id': req.vendor_id,
+                        'message_id': req.message_id,
+                        'data': data
+                    })
+                except (json.JSONDecodeError, Exception) as e:
+                    logging.error(f"Error parsing DataTransfer data: {e}")
+            
             return call_result.DataTransfer(
                 status=DataTransferStatus.accepted,
                 data="OK"

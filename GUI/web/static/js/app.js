@@ -5,11 +5,8 @@ const socket = io();
 let state = {
     connected: false,
     chargePointId: null,
-    energy: '0 Wh',
     voltage: '0 V',
-    soc: '0 %',
-    cpState: 'Unknown',
-    chargeProfile: 0
+    cpState: 'Unknown'
 };
 
 // DOM Elements
@@ -17,26 +14,23 @@ const elements = {
     connectionStatus: document.getElementById('connection-status'),
     statusText: document.getElementById('status-text'),
     chargePointId: document.getElementById('charge-point-id'),
-    energyValue: document.getElementById('energy-value'),
     voltageValue: document.getElementById('voltage-value'),
-    socValue: document.getElementById('soc-value'),
     cpStateValue: document.getElementById('cp-state-value'),
-    chargeProfileSlider: document.getElementById('charge-profile-slider'),
-    chargeProfileLabel: document.getElementById('charge-profile-label'),
     heartbeatIndicator: document.getElementById('heartbeat-indicator'),
     pingIndicator: document.getElementById('ping-indicator'),
     btnRemoteStart: document.getElementById('btn-remote-start'),
     btnRemoteStop: document.getElementById('btn-remote-stop'),
     btnStartCharge: document.getElementById('btn-start-charge'),
     btnStartDischarge: document.getElementById('btn-start-discharge'),
-    btnStopCharge: document.getElementById('btn-stop-charge'),
     btnSoftReset: document.getElementById('btn-soft-reset'),
     btnHardReset: document.getElementById('btn-hard-reset'),
     toast: document.getElementById('toast'),
     tempL1: document.getElementById('temp-l1'),
     tempL2: document.getElementById('temp-l2'),
     tempL3: document.getElementById('temp-l3'),
-    tempN: document.getElementById('temp-n')
+    tempN: document.getElementById('temp-n'),
+    acDetected: document.getElementById('ac-detected'),
+    triggeringOnPowerOutage: document.getElementById('triggering-on-power-outage')
 };
 
 // Initialize on page load
@@ -75,10 +69,8 @@ function updateUI() {
         // Enable controls
         elements.btnStartCharge.disabled = false;
         elements.btnStartDischarge.disabled = false;
-        elements.btnStopCharge.disabled = false;
         elements.btnSoftReset.disabled = false;
         elements.btnHardReset.disabled = false;
-        elements.chargeProfileSlider.disabled = false;
     } else {
         elements.connectionStatus.classList.remove('status-connected');
         elements.connectionStatus.classList.add('status-disconnected');
@@ -88,43 +80,17 @@ function updateUI() {
         // Disable controls
         elements.btnStartCharge.disabled = true;
         elements.btnStartDischarge.disabled = true;
-        elements.btnStopCharge.disabled = true;
         elements.btnSoftReset.disabled = true;
         elements.btnHardReset.disabled = true;
-        elements.chargeProfileSlider.disabled = true;
     }
     
     // Voltage and CP state
-    elements.energyValue.textContent = state.energy || '0 Wh';
     elements.voltageValue.textContent = state.voltage || '0 V';
-    elements.socValue.textContent = state.soc || '0 %';
     elements.cpStateValue.textContent = state.cp_state || 'Unknown';
-    
-    // Charge profile
-    if (state.charge_profile !== undefined) {
-        elements.chargeProfileSlider.value = state.charge_profile;
-        updateChargeProfileLabel(state.charge_profile);
-    }
 }
 
 // Setup event listeners
 function setupEventListeners() {
-    // Charge profile slider
-    elements.chargeProfileSlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value);
-        updateChargeProfileLabel(value);
-    });
-    
-    // Debounce slider changes before sending to server
-    let sliderTimeout;
-    elements.chargeProfileSlider.addEventListener('change', (e) => {
-        clearTimeout(sliderTimeout);
-        sliderTimeout = setTimeout(() => {
-            const value = parseInt(e.target.value);
-            setChargingProfile(value);
-        }, 500);
-    });
-    
     // Transaction control buttons
     elements.btnRemoteStart.addEventListener('click', () => remoteStartTransaction());
     elements.btnRemoteStop.addEventListener('click', () => remoteStopTransaction());
@@ -132,50 +98,10 @@ function setupEventListeners() {
     // Charge control buttons
     elements.btnStartCharge.addEventListener('click', () => startCharging());
     elements.btnStartDischarge.addEventListener('click', () => startDischarging());
-    elements.btnStopCharge.addEventListener('click', () => stopCharging());
     
     // Reset buttons
     elements.btnSoftReset.addEventListener('click', () => sendReset('soft'));
     elements.btnHardReset.addEventListener('click', () => sendReset('hard'));
-}
-
-// Update charge profile label
-function updateChargeProfileLabel(value) {
-    if (value === 0) {
-        elements.chargeProfileLabel.textContent = 'Set charge profile: PLC communication only';
-    } else {
-        const clampedValue = Math.max(6, Math.min(80, value));
-        elements.chargeProfileLabel.textContent = `Set charge profile: ${clampedValue}A`;
-    }
-}
-
-// Set charging profile via API
-async function setChargingProfile(ampere) {
-    if (!state.connected) {
-        showToast('Cannot set charging profile: No OCPP client connected', 'error');
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/charging-profile', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ ampere })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            showToast(data.message, 'success');
-        } else {
-            showToast(data.message, 'error');
-        }
-    } catch (error) {
-        console.error('Error setting charging profile:', error);
-        showToast('Error setting charging profile', 'error');
-    }
 }
 
 // Remote start transaction
@@ -297,31 +223,6 @@ async function startDischarging() {
     }
 }
 
-// Stop charging
-async function stopCharging() {
-    if (!state.connected) {
-        showToast('Cannot stop charging: No OCPP client connected', 'error');
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/charge/stop', {
-            method: 'POST'
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            showToast(data.message, 'success');
-        } else {
-            showToast(data.message, 'error');
-        }
-    } catch (error) {
-        console.error('Error stopping charging:', error);
-        showToast('Error stopping charging', 'error');
-    }
-}
-
 // Send reset command
 async function sendReset(type) {
     if (!state.connected) {
@@ -411,19 +312,9 @@ socket.on('ping', (data) => {
 socket.on('meter_value', (data) => {
     console.log('Meter value update:', data);
     
-    if (data.energy !== undefined) {
-        state.energy = data.energy;
-        elements.energyValue.textContent = data.energy;
-    }
-    
     if (data.voltage !== undefined) {
         state.voltage = data.voltage;
         elements.voltageValue.textContent = data.voltage;
-    }
-    
-    if (data.soc !== undefined) {
-        state.soc = data.soc;
-        elements.socValue.textContent = data.soc;
     }
 });
 
@@ -448,6 +339,18 @@ socket.on('temperature_update', (data) => {
     }
     if (temps.N !== null && temps.N !== undefined) {
         elements.tempN.textContent = `${temps.N.toFixed(1)}°C`;
+    }
+    
+    // Update AC detected status
+    if (data.ac_detected !== null && data.ac_detected !== undefined) {
+        elements.acDetected.textContent = data.ac_detected ? 'Yes' : 'No';
+        elements.acDetected.style.color = data.ac_detected ? '#4CAF50' : '#f44336';
+    }
+    
+    // Update triggering on power outage status
+    if (data.triggering_on_power_outage !== null && data.triggering_on_power_outage !== undefined) {
+        elements.triggeringOnPowerOutage.textContent = data.triggering_on_power_outage ? 'Yes' : 'No';
+        elements.triggeringOnPowerOutage.style.color = data.triggering_on_power_outage ? '#FF9800' : '#4CAF50';
     }
 });
 

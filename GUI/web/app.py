@@ -261,7 +261,9 @@ state = {
         'L2': None,
         'L3': None,
         'N': None
-    }
+    },
+    'ac_detected': None,
+    'triggering_on_power_outage': None
 }
 
 
@@ -327,6 +329,47 @@ def on_meter_value_received(data):
         socketio.emit('temperature_update', {'temperatures': state['temperatures']})
 
 
+def on_data_transfer_received(data):
+    """Callback when DataTransfer message is received"""
+    vendor_id = data.get('vendor_id', '')
+    message_id = data.get('message_id', '')
+    transfer_data = data.get('data', {})
+    
+    if vendor_id == 'SmartyPlugger' and message_id == 'Heartbeat':
+        # Parse temperature values from Heartbeat DataTransfer
+        temperatures_updated = False
+        
+        if 'N' in transfer_data and transfer_data['N'] is not None:
+            state['temperatures']['N'] = transfer_data['N']
+            logging.info(f"🌡️  Temperature N: {transfer_data['N']}°C")
+            temperatures_updated = True
+        
+        if 'L1' in transfer_data and transfer_data['L1'] is not None:
+            state['temperatures']['L1'] = transfer_data['L1']
+            logging.info(f"🌡️  Temperature L1: {transfer_data['L1']}°C")
+            temperatures_updated = True
+        
+        if 'L2' in transfer_data and transfer_data['L2'] is not None:
+            state['temperatures']['L2'] = transfer_data['L2']
+            logging.info(f"🌡️  Temperature L2: {transfer_data['L2']}°C")
+            temperatures_updated = True
+        
+        if 'AcDetected' in transfer_data:
+            state['ac_detected'] = bool(transfer_data['AcDetected'])
+            logging.info(f"⚡ AC Detected: {state['ac_detected']}")
+        
+        if 'TriggeringOnPowerOutage' in transfer_data:
+            state['triggering_on_power_outage'] = bool(transfer_data['TriggeringOnPowerOutage'])
+            logging.info(f"🔌 Triggering on Power Outage: {state['triggering_on_power_outage']}")
+        
+        # Emit combined update to web interface
+        socketio.emit('temperature_update', {
+            'temperatures': state['temperatures'],
+            'ac_detected': state['ac_detected'],
+            'triggering_on_power_outage': state['triggering_on_power_outage']
+        })
+
+
 def on_status_notification_received(data):
     """Callback when status notification is received"""
     status = data.get('status', 'Unknown')
@@ -387,6 +430,7 @@ ChargePoint.status_notification_callback = on_status_notification_received
 ChargePoint.connection_established_callback = on_client_connected
 ChargePoint.connection_closed_callback = on_client_disconnected
 ChargePoint.transaction_callback = on_transaction_event
+ChargePoint.data_transfer_callback = on_data_transfer_received
 
 
 @app.route('/')
