@@ -965,3 +965,71 @@ body {
         padding: var(--spacing-md);
     }
 }
+
+/* K-VAS (EV Battery) Card */
+.kvas-card .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.kvas-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.kvas-soc-group .battery-icon {
+    width: 100%;
+    height: 14px;
+    margin-bottom: var(--spacing-sm);
+}
+
+.kvas-status-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-lg);
+}
+
+.kvas-status-strip strong {
+    color: var(--text-primary);
+}
+
+.kvas-history-wrap {
+    overflow-x: auto;
+}
+
+.kvas-history-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.kvas-history-table th,
+.kvas-history-table td {
+    padding: var(--spacing-sm) var(--spacing-md);
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+
+.kvas-history-table th {
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.kvas-history-empty {
+    color: var(--text-secondary);
+    text-align: center !important;
+    padding: var(--spacing-lg) !important;
+}

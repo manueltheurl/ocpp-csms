@@ -6,7 +6,7 @@ Flask application with WebSocket support for real-time updates
 # ============================================================================
 # OCPP VERSION SELECTION - Change this to switch between OCPP versions
 # ============================================================================
-OCPP_VERSION = "1.6"  # Options: "1.6" or "2.0.1"
+OCPP_VERSION = "2.0.1"  # Options: "1.6" or "2.0.1"
 # ============================================================================
 
 from flask import Flask, render_template, jsonify, request
@@ -263,8 +263,21 @@ state = {
         'N': None
     },
     'ac_detected': None,
-    'triggering_on_power_outage': None
+    'triggering_on_power_outage': None,
+    'kvas': {
+        'key_id': None,
+        'records_received': 0,
+        'records_decrypted': 0,
+        'records_hmac_failed': 0,
+        'records_undecryptable': 0,
+        'last_result_code': None,
+        'last_tsdt': None,
+        'last_record': None,       # decoded tags dict of the most recent record
+        'history': [],             # last KVAS_HISTORY_LEN records, newest last
+    }
 }
+
+KVAS_HISTORY_LEN = 20
 
 
 def on_heartbeat_received():
@@ -335,39 +348,132 @@ def on_data_transfer_received(data):
     message_id = data.get('message_id', '')
     transfer_data = data.get('data', {})
     
-    if vendor_id == 'SmartyPlugger' and message_id == 'Heartbeat':
-        # Parse temperature values from Heartbeat DataTransfer
-        temperatures_updated = False
+    if vendor_id == 'SmartyPlugger':
+        # Handle different message types
+        if message_id == 'TemperatureData':
+            # Parse temperature values from TemperatureData DataTransfer
+            temperatures_updated = False
+            
+            if 'N' in transfer_data and transfer_data['N'] is not None:
+                state['temperatures']['N'] = transfer_data['N']
+                logging.info(f"🌡️  Temperature N: {transfer_data['N']}°C")
+                temperatures_updated = True
+            
+            if 'L1' in transfer_data and transfer_data['L1'] is not None:
+                state['temperatures']['L1'] = transfer_data['L1']
+                logging.info(f"🌡️  Temperature L1: {transfer_data['L1']}°C")
+                temperatures_updated = True
+            
+            if 'L2' in transfer_data and transfer_data['L2'] is not None:
+                state['temperatures']['L2'] = transfer_data['L2']
+                logging.info(f"🌡️  Temperature L2: {transfer_data['L2']}°C")
+                temperatures_updated = True
+            
+            if 'L3' in transfer_data and transfer_data['L3'] is not None:
+                state['temperatures']['L3'] = transfer_data['L3']
+                logging.info(f"🌡️  Temperature L3: {transfer_data['L3']}°C")
+                temperatures_updated = True
+            
+            if temperatures_updated:
+                # Emit temperature update to web interface
+                socketio.emit('temperature_update', {
+                    'temperatures': state['temperatures'],
+                    'ac_detected': state['ac_detected'],
+                    'triggering_on_power_outage': state['triggering_on_power_outage']
+                })
         
-        if 'N' in transfer_data and transfer_data['N'] is not None:
-            state['temperatures']['N'] = transfer_data['N']
-            logging.info(f"🌡️  Temperature N: {transfer_data['N']}°C")
-            temperatures_updated = True
+        elif message_id == 'AcDetected':
+            # Parse AC detection status
+            if 'AcDetected' in transfer_data:
+                state['ac_detected'] = bool(transfer_data['AcDetected'])
+                logging.info(f"⚡ AC Detected: {state['ac_detected']}")
+                
+                # Emit update to web interface
+                socketio.emit('temperature_update', {
+                    'temperatures': state['temperatures'],
+                    'ac_detected': state['ac_detected'],
+                    'triggering_on_power_outage': state['triggering_on_power_outage']
+                })
         
-        if 'L1' in transfer_data and transfer_data['L1'] is not None:
-            state['temperatures']['L1'] = transfer_data['L1']
-            logging.info(f"🌡️  Temperature L1: {transfer_data['L1']}°C")
-            temperatures_updated = True
-        
-        if 'L2' in transfer_data and transfer_data['L2'] is not None:
-            state['temperatures']['L2'] = transfer_data['L2']
-            logging.info(f"🌡️  Temperature L2: {transfer_data['L2']}°C")
-            temperatures_updated = True
-        
-        if 'AcDetected' in transfer_data:
-            state['ac_detected'] = bool(transfer_data['AcDetected'])
-            logging.info(f"⚡ AC Detected: {state['ac_detected']}")
-        
-        if 'TriggeringOnPowerOutage' in transfer_data:
-            state['triggering_on_power_outage'] = bool(transfer_data['TriggeringOnPowerOutage'])
-            logging.info(f"🔌 Triggering on Power Outage: {state['triggering_on_power_outage']}")
-        
-        # Emit combined update to web interface
-        socketio.emit('temperature_update', {
-            'temperatures': state['temperatures'],
-            'ac_detected': state['ac_detected'],
-            'triggering_on_power_outage': state['triggering_on_power_outage']
-        })
+        elif message_id == 'TriggeringOnPowerOutage':
+            # Parse triggering on power outage status
+            if 'TriggeringOnPowerOutage' in transfer_data:
+                state['triggering_on_power_outage'] = bool(transfer_data['TriggeringOnPowerOutage'])
+                logging.info(f"🔌 Triggering on Power Outage: {state['triggering_on_power_outage']}")
+                
+                # Emit update to web interface
+                socketio.emit('temperature_update', {
+                    'temperatures': state['temperatures'],
+                    'ac_detected': state['ac_detected'],
+                    'triggering_on_power_outage': state['triggering_on_power_outage']
+                })
+
+
+
+def on_kvas_event(event):
+    """Callback for decoded K-VAS events (key issuance, decoded battery records).
+    See kvas/handler.py for the event shapes this receives."""
+    event_type = event.get('type')
+
+    if event_type == 'key_issued':
+        for entry in event.get('entries', []):
+            if entry.get('retVal') != '9':
+                state['kvas']['key_id'] = entry.get('keyId')
+                logging.info(f"🔑 K-VAS session key issued: {entry.get('keyId')} "
+                             f"for {entry.get('chargerId')}")
+            else:
+                logging.error(f"🔑 K-VAS GetEncKey: unknown chargerId "
+                               f"'{entry.get('chargerId')}' (retVal 9)")
+        socketio.emit('kvas_status', state['kvas'])
+        return
+
+    if event_type == 'battery_info':
+        records = event.get('records', [])
+        state['kvas']['last_tsdt'] = event.get('tsdt')
+        state['kvas']['last_result_code'] = '0'
+
+        for rec in records:
+            state['kvas']['records_received'] += 1
+            if rec.get('undecryptable'):
+                state['kvas']['records_undecryptable'] += 1
+                logging.warning(f"🔋 K-VAS record undecryptable: {rec.get('error')}")
+                continue
+            if rec.get('hmac_ok') is False:
+                state['kvas']['records_hmac_failed'] += 1
+                logging.warning(f"🔋 K-VAS record HMAC verification FAILED "
+                                 f"(keyId={rec.get('keyId')})")
+                continue
+            state['kvas']['records_decrypted'] += 1
+            tags = rec.get('tags', {})
+            state['kvas']['last_record'] = tags
+
+            history_entry = {
+                'timeStamp': rec.get('timeStamp'),
+                'counter': rec.get('counter'),
+                'soc': tags.get('soc_percent'),
+                'soh': tags.get('soh_percent'),
+                'pack_voltage_v': tags.get('pack_voltage_v'),
+                'pack_current_a': tags.get('pack_current_a'),
+                'cell_voltage_max_v': tags.get('cell_voltage_max_v'),
+                'cell_voltage_min_v': tags.get('cell_voltage_min_v'),
+                'cell_temp_max_c': tags.get('cell_temp_max_c'),
+                'cell_temp_min_c': tags.get('cell_temp_min_c'),
+                'vin': tags.get('vin'),
+            }
+            state['kvas']['history'].append(history_entry)
+            if len(state['kvas']['history']) > KVAS_HISTORY_LEN:
+                state['kvas']['history'] = state['kvas']['history'][-KVAS_HISTORY_LEN:]
+
+            logging.info(f"🔋 K-VAS battery record: SoC={tags.get('soc_percent')}% "
+                         f"SoH={tags.get('soh_percent')}% "
+                         f"V={tags.get('pack_voltage_v')}V I={tags.get('pack_current_a')}A")
+
+        socketio.emit('kvas_status', state['kvas'])
+        if state['kvas']['last_record'] is not None:
+            socketio.emit('kvas_battery', {
+                'record': state['kvas']['last_record'],
+                'history': state['kvas']['history'],
+            })
 
 
 def on_status_notification_received(data):
@@ -431,6 +537,10 @@ ChargePoint.connection_established_callback = on_client_connected
 ChargePoint.connection_closed_callback = on_client_disconnected
 ChargePoint.transaction_callback = on_transaction_event
 ChargePoint.data_transfer_callback = on_data_transfer_received
+if hasattr(ChargePoint, 'kvas_callback'):
+    # Only ChargePoint201 declares this (K-VAS's GetEncKey/Battery Info only exist
+    # in the 2.0.1 flow) - guarded so this stays a no-op if OCPP_VERSION == "1.6".
+    ChargePoint.kvas_callback = on_kvas_event
 
 
 @app.route('/')
@@ -867,6 +977,8 @@ if __name__ == '__main__':
     # Flask debug mode spawns a child process with WERKZEUG_RUN_MAIN set
     if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
         central_system.start()
+        
+    print("Webpage at http://localhost:1234")
     
     # Run Flask app with SocketIO
     socketio.run(

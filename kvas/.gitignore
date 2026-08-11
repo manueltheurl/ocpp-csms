@@ -1,0 +1,4 @@
+# Generated at runtime: every session key this CSMS has ever minted (AES/HMAC keys in
+# the clear). Bench-only material, but it is a per-deployment runtime artifact, not
+# something to version - regenerated automatically on first GetEncKey after a restart.
+kvas_keys.json

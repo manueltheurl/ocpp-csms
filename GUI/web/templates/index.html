@@ -116,6 +116,82 @@
                     </div>
                 </div>
 
+                <!-- EV Battery (K-VAS) Card -->
+                <div class="card card-full-width kvas-card">
+                    <div class="card-header">
+                        <h2 class="card-title">EV Battery (K-VAS)</h2>
+                        <div id="kvas-key-badge" class="status-badge status-disconnected">
+                            <span class="status-indicator"></span>
+                            <span id="kvas-key-text">No session key</span>
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        <div class="kvas-metrics">
+                            <div class="info-group kvas-soc-group">
+                                <label>State of Charge</label>
+                                <div class="battery-icon kvas-soc-bar">
+                                    <div id="kvas-soc-level" class="battery-level" style="width: 0%"></div>
+                                </div>
+                                <div id="kvas-soc" class="metric-value">— %</div>
+                            </div>
+                            <div class="info-group">
+                                <label>State of Health</label>
+                                <div id="kvas-soh" class="metric-value">— %</div>
+                            </div>
+                            <div class="info-group">
+                                <label>Pack Voltage</label>
+                                <div id="kvas-pack-voltage" class="metric-value">— V</div>
+                            </div>
+                            <div class="info-group">
+                                <label>Pack Current</label>
+                                <div id="kvas-pack-current" class="metric-value">— A</div>
+                            </div>
+                            <div class="info-group">
+                                <label>Cell Voltage (max/min)</label>
+                                <div id="kvas-cell-voltage" class="metric-value">— / — V</div>
+                            </div>
+                            <div class="info-group">
+                                <label>Cell Temperature (max/min)</label>
+                                <div id="kvas-cell-temp" class="metric-value">— / — °C</div>
+                            </div>
+                            <div class="info-group">
+                                <label>VIN</label>
+                                <div id="kvas-vin" class="info-value">—</div>
+                            </div>
+                        </div>
+
+                        <div class="kvas-status-strip">
+                            <span>Key ID: <strong id="kvas-status-keyid">—</strong></span>
+                            <span>Decrypted: <strong id="kvas-status-decrypted">0</strong></span>
+                            <span>HMAC failed: <strong id="kvas-status-hmac-failed">0</strong></span>
+                            <span>Undecryptable: <strong id="kvas-status-undecryptable">0</strong></span>
+                            <span>Last tsdt: <strong id="kvas-status-tsdt">—</strong></span>
+                            <span>Last resultCode: <strong id="kvas-status-resultcode">—</strong></span>
+                        </div>
+
+                        <div class="kvas-history-wrap">
+                            <table class="kvas-history-table">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Counter</th>
+                                        <th>SoC %</th>
+                                        <th>SoH %</th>
+                                        <th>V</th>
+                                        <th>A</th>
+                                        <th>Cell V max/min</th>
+                                        <th>Cell T max/min</th>
+                                        <th>VIN</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="kvas-history-body">
+                                    <tr><td colspan="9" class="kvas-history-empty">No records yet</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Control Actions Card -->
                 <div class="card card-full-width">
                     <div class="card-header">

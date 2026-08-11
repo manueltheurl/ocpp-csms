@@ -30,7 +30,25 @@ const elements = {
     tempL3: document.getElementById('temp-l3'),
     tempN: document.getElementById('temp-n'),
     acDetected: document.getElementById('ac-detected'),
-    triggeringOnPowerOutage: document.getElementById('triggering-on-power-outage')
+    triggeringOnPowerOutage: document.getElementById('triggering-on-power-outage'),
+    // K-VAS (EV Battery)
+    kvasKeyBadge: document.getElementById('kvas-key-badge'),
+    kvasKeyText: document.getElementById('kvas-key-text'),
+    kvasSoc: document.getElementById('kvas-soc'),
+    kvasSocLevel: document.getElementById('kvas-soc-level'),
+    kvasSoh: document.getElementById('kvas-soh'),
+    kvasPackVoltage: document.getElementById('kvas-pack-voltage'),
+    kvasPackCurrent: document.getElementById('kvas-pack-current'),
+    kvasCellVoltage: document.getElementById('kvas-cell-voltage'),
+    kvasCellTemp: document.getElementById('kvas-cell-temp'),
+    kvasVin: document.getElementById('kvas-vin'),
+    kvasStatusKeyId: document.getElementById('kvas-status-keyid'),
+    kvasStatusDecrypted: document.getElementById('kvas-status-decrypted'),
+    kvasStatusHmacFailed: document.getElementById('kvas-status-hmac-failed'),
+    kvasStatusUndecryptable: document.getElementById('kvas-status-undecryptable'),
+    kvasStatusTsdt: document.getElementById('kvas-status-tsdt'),
+    kvasStatusResultCode: document.getElementById('kvas-status-resultcode'),
+    kvasHistoryBody: document.getElementById('kvas-history-body')
 };
 
 // Initialize on page load
@@ -87,6 +105,75 @@ function updateUI() {
     // Voltage and CP state
     elements.voltageValue.textContent = state.voltage || '0 V';
     elements.cpStateValue.textContent = state.cp_state || 'Unknown';
+
+    // K-VAS (initial render from /api/state; live updates come via the
+    // kvas_status/kvas_battery socket events below)
+    if (state.kvas) {
+        updateKvasStatus(state.kvas);
+        if (state.kvas.last_record) {
+            updateKvasRecord(state.kvas.last_record);
+        }
+        if (state.kvas.history && state.kvas.history.length) {
+            updateKvasHistory(state.kvas.history);
+        }
+    }
+}
+
+// --- K-VAS helpers -----------------------------------------------------------
+
+function fmtNum(value, digits, suffix) {
+    return (value === null || value === undefined) ? '—' : `${Number(value).toFixed(digits)}${suffix}`;
+}
+
+function updateKvasStatus(kvas) {
+    if (kvas.key_id) {
+        elements.kvasKeyBadge.classList.remove('status-disconnected');
+        elements.kvasKeyBadge.classList.add('status-connected');
+        elements.kvasKeyText.textContent = `Key ${kvas.key_id}`;
+    } else {
+        elements.kvasKeyBadge.classList.remove('status-connected');
+        elements.kvasKeyBadge.classList.add('status-disconnected');
+        elements.kvasKeyText.textContent = 'No session key';
+    }
+    elements.kvasStatusKeyId.textContent = kvas.key_id || '—';
+    elements.kvasStatusDecrypted.textContent = kvas.records_decrypted ?? 0;
+    elements.kvasStatusHmacFailed.textContent = kvas.records_hmac_failed ?? 0;
+    elements.kvasStatusUndecryptable.textContent = kvas.records_undecryptable ?? 0;
+    elements.kvasStatusTsdt.textContent = kvas.last_tsdt || '—';
+    elements.kvasStatusResultCode.textContent = kvas.last_result_code ?? '—';
+}
+
+function updateKvasRecord(tags) {
+    elements.kvasSoc.textContent = fmtNum(tags.soc_percent, 1, ' %');
+    elements.kvasSocLevel.style.width = `${Math.max(0, Math.min(100, tags.soc_percent ?? 0))}%`;
+    elements.kvasSoh.textContent = fmtNum(tags.soh_percent, 0, ' %');
+    elements.kvasPackVoltage.textContent = fmtNum(tags.pack_voltage_v, 1, ' V');
+    elements.kvasPackCurrent.textContent = fmtNum(tags.pack_current_a, 1, ' A');
+    elements.kvasCellVoltage.textContent =
+        `${fmtNum(tags.cell_voltage_max_v, 2, '')} / ${fmtNum(tags.cell_voltage_min_v, 2, '')} V`;
+    elements.kvasCellTemp.textContent =
+        `${fmtNum(tags.cell_temp_max_c, 0, '')} / ${fmtNum(tags.cell_temp_min_c, 0, '')} °C`;
+    elements.kvasVin.textContent = tags.vin || '—';
+}
+
+function updateKvasHistory(history) {
+    if (!history.length) {
+        return;
+    }
+    // Newest first in the table.
+    const rows = history.slice().reverse().map((r) => `
+        <tr>
+            <td>${r.timeStamp ?? '—'}</td>
+            <td>${r.counter ?? '—'}</td>
+            <td>${fmtNum(r.soc, 1, '')}</td>
+            <td>${fmtNum(r.soh, 0, '')}</td>
+            <td>${fmtNum(r.pack_voltage_v, 1, '')}</td>
+            <td>${fmtNum(r.pack_current_a, 1, '')}</td>
+            <td>${fmtNum(r.cell_voltage_max_v, 2, '')} / ${fmtNum(r.cell_voltage_min_v, 2, '')}</td>
+            <td>${fmtNum(r.cell_temp_max_c, 0, '')} / ${fmtNum(r.cell_temp_min_c, 0, '')}</td>
+            <td>${r.vin || '—'}</td>
+        </tr>`).join('');
+    elements.kvasHistoryBody.innerHTML = rows;
 }
 
 // Setup event listeners
@@ -351,6 +438,21 @@ socket.on('temperature_update', (data) => {
     if (data.triggering_on_power_outage !== null && data.triggering_on_power_outage !== undefined) {
         elements.triggeringOnPowerOutage.textContent = data.triggering_on_power_outage ? 'Yes' : 'No';
         elements.triggeringOnPowerOutage.style.color = data.triggering_on_power_outage ? '#FF9800' : '#4CAF50';
+    }
+});
+
+socket.on('kvas_status', (data) => {
+    console.log('K-VAS status update:', data);
+    updateKvasStatus(data);
+});
+
+socket.on('kvas_battery', (data) => {
+    console.log('K-VAS battery record:', data);
+    if (data.record) {
+        updateKvasRecord(data.record);
+    }
+    if (data.history) {
+        updateKvasHistory(data.history);
     }
 });
 

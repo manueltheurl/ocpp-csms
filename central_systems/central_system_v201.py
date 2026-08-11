@@ -8,6 +8,8 @@ import sys
 
 from exi_generator import EXIGenerator
 
+import kvas
+
 from ocpp.routing import on
 from ocpp.v201 import ChargePoint as cp
 from ocpp.v201 import call, call_result
@@ -37,7 +39,16 @@ class ChargePoint201(cp):
     # Class-level callbacks for connection status
     connection_established_callback = None
     connection_closed_callback = None
-    
+    # Class-level callback for (any) DataTransfer and TransactionEvent - declared here
+    # (not just assigned onto the class from app.py) and actually invoked below.
+    # Previously app.py registered these but nothing in this class ever called them,
+    # so no DataTransfer reached the GUI in 2.0.1 mode - not K-VAS, not
+    # AcDetected/TriggeringOnPowerOutage either (see the K-VAS plan's B3).
+    data_transfer_callback = None
+    transaction_callback = None
+    # Class-level callback for decoded K-VAS records / key-issue events (GUI).
+    kvas_callback = None
+
     def __init__(self, *args, iso15118_certs, **kwargs):
         super().__init__(*args, **kwargs)
         self.iso15118_certs = iso15118_certs
@@ -138,7 +149,16 @@ class ChargePoint201(cp):
             evse_id = kwargs.get('evse', {}).get('id', 'unknown')
             
             logging.info(f"📊 TransactionEvent: type={event_type}, transaction_id={transaction_id}, evse_id={evse_id}")
-            
+
+            # B3 fix: this was never wired to transaction_callback in 2.0.1 mode (see
+            # data_transfer_callback above for the same class of bug) - app.js's
+            # transaction start/stop indicators never lit up under OCPP 2.0.1.
+            if ChargePoint201.transaction_callback:
+                if event_type == 'Started':
+                    ChargePoint201.transaction_callback({'event': 'start', 'transaction_id': transaction_id})
+                elif event_type == 'Ended':
+                    ChargePoint201.transaction_callback({'event': 'stop', 'transaction_id': transaction_id})
+
             # Extract meter values from the transaction event
             meter_value = kwargs.get('meter_value', [])
             
@@ -354,14 +374,34 @@ class ChargePoint201(cp):
 
     @on(Action.data_transfer)
     def on_data_transfer(self, **kwargs):
+        vendor_id = kwargs.get('vendor_id', 'Unknown')
+        message_id = kwargs.get('message_id', 'Unknown')
+        data = kwargs.get('data', {})
+
+        logging.info(f"📦 DataTransfer received - VendorId: {vendor_id}, MessageId: {message_id}")
+
+        # K-VAS (kr.or.keco): GetEncKey and Battery Info. Answered SYNCHRONOUSLY -
+        # response_data below becomes DataTransferResponse.data directly, as an
+        # OBJECT (never a bare string - see TODO.md's "CSMS returns data=\"\"" note
+        # in the MCU repo for why that distinction matters to the MCU's JSON parser).
+        if vendor_id == kvas.VENDOR_ID:
+            try:
+                response_data, gui_event = kvas.handle(vendor_id, message_id, data)
+            except Exception as e:
+                logging.error(f"❌ K-VAS handler error ({message_id}): {e}", exc_info=True)
+                response_data = {"resultCode": "0"} if message_id == "Battery Info" else {}
+                gui_event = None
+            if gui_event and ChargePoint201.kvas_callback:
+                try:
+                    ChargePoint201.kvas_callback(gui_event)
+                except Exception as e:
+                    logging.error(f"❌ Error in kvas_callback: {e}")
+            return call_result.DataTransfer(status=GenericStatusEnumType.accepted,
+                                             data=response_data)
+
         try:
-            vendor_id = kwargs.get('vendor_id', 'Unknown')
-            message_id = kwargs.get('message_id', 'Unknown')
-            data = kwargs.get('data', {})
-            
-            logging.info(f"📦 DataTransfer received - VendorId: {vendor_id}, MessageId: {message_id}")
-            
-            # Handle temperature data
+            # Handle temperature data (kept as its own path - already routes through
+            # meter_value_callback and is known-working)
             if vendor_id == 'SmartyPlugger' and message_id == 'TemperatureData':
                 logging.info(f"🌡️  Temperature Data:")
 
@@ -371,11 +411,11 @@ class ChargePoint201(cp):
                     'L3': data.get('l3'),
                     'N': data.get('n')
                 }
-                
+
                 for phase, temp in temperatures.items():
                     if temp is not None:
                         logging.info(f"      Phase {phase}: {temp}°C")
-                
+
                 # Trigger meter value callback if registered (for GUI display)
                 if ChargePoint201.meter_value_callback:
                     # Format temperature data to match meter value callback expectations
@@ -385,10 +425,20 @@ class ChargePoint201(cp):
                     })
             else:
                 logging.info(f"   Data: {data}")
-                
+
+            # Generic path (B3 fix): relay every DataTransfer to the registered
+            # callback so the GUI can react to it, same as the 1.6 class already
+            # does. This is what makes AcDetected/TriggeringOnPowerOutage (and any
+            # future vendor message) reach the GUI in 2.0.1 mode.
+            if ChargePoint201.data_transfer_callback:
+                ChargePoint201.data_transfer_callback({
+                    'vendor_id': vendor_id,
+                    'message_id': message_id,
+                    'data': data,
+                })
         except Exception as e:
             logging.error(f"❌ Error processing DataTransfer: {e}")
-        
+
         return call_result.DataTransfer(status=GenericStatusEnumType.accepted, data="")
 
     async def set_variables_req(self, **kwargs):
