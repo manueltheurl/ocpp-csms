@@ -41,6 +41,7 @@ else:
     raise ValueError(f"Unsupported OCPP_VERSION: {OCPP_VERSION}")
 
 import http
+import kvas.config as kvas_config
 
 class AmpereIndicator(IntEnum):
     CHARGING = 16
@@ -265,6 +266,10 @@ state = {
     'ac_detected': None,
     'triggering_on_power_outage': None,
     'kvas': {
+        # Set once at startup (plan §3.4) so the frontend knows which card layout
+        # to show - "local_ministry" (decoded values, Stage 0) or "relay" (KECO
+        # round-trip status, this plan). See kvas/config.py.
+        'mode': kvas_config.KVAS_MODE,
         'key_id': None,
         'records_received': 0,
         'records_decrypted': 0,
@@ -274,6 +279,14 @@ state = {
         'last_tsdt': None,
         'last_record': None,       # decoded tags dict of the most recent record
         'history': [],             # last KVAS_HISTORY_LEN records, newest last
+        # relay-mode only (plan §3.4) - KECO's real response to the last Battery
+        # Info relay, plus a running counter of records relayed this session.
+        'keco_last_result_code': None,
+        'keco_last_result_time': None,
+        'keco_success_cnt': None,
+        'keco_err_code': None,
+        'keco_err_msg': None,
+        'records_relayed': 0,
     }
 }
 
@@ -416,6 +429,8 @@ def on_kvas_event(event):
     event_type = event.get('type')
 
     if event_type == 'key_issued':
+        if event.get('relayError'):
+            logging.error(f"🔑 K-VAS GetEncKey relay to KECO failed: {event['relayError']}")
         for entry in event.get('entries', []):
             if entry.get('retVal') != '9':
                 state['kvas']['key_id'] = entry.get('keyId')
@@ -425,6 +440,70 @@ def on_kvas_event(event):
                 logging.error(f"🔑 K-VAS GetEncKey: unknown chargerId "
                                f"'{entry.get('chargerId')}' (retVal 9)")
         socketio.emit('kvas_status', state['kvas'])
+        return
+
+    if event_type == 'battery_relayed':
+        # relay mode (plan §3.4) - kept as a separate event/shape from 'battery_info'
+        # rather than overloading it: there is no decoded record here, only KECO's
+        # real response to the relay (plus, optionally, a D8 shadow-decoded record
+        # for debugging - see kvas/shadow_decrypt.py).
+        state['kvas']['last_tsdt'] = event.get('tsdt')
+        state['kvas']['last_result_code'] = event.get('resultCode')
+        state['kvas']['keco_last_result_code'] = event.get('resultCode')
+        state['kvas']['keco_last_result_time'] = event.get('resultTime')
+        state['kvas']['keco_success_cnt'] = event.get('successCnt')
+        state['kvas']['keco_err_code'] = event.get('errCode')
+        state['kvas']['keco_err_msg'] = event.get('errMsg')
+        state['kvas']['records_relayed'] += event.get('recordCount', 0)
+
+        if event.get('resultCode') == '0':
+            logging.info(f"🔋 K-VAS Battery Info relayed to KECO: resultCode=0 "
+                         f"successCnt={event.get('successCnt')}")
+        else:
+            logging.warning(f"🔋 K-VAS Battery Info relay: resultCode={event.get('resultCode')} "
+                             f"errCode={event.get('errCode')} errMsg={event.get('errMsg')}")
+
+        shadow = event.get('shadowDecoded')
+        if shadow:
+            for rec in shadow:
+                if rec.get('undecryptable'):
+                    continue
+                tags = rec.get('tags', {})
+                state['kvas']['last_record'] = tags
+                history_entry = {
+                    'timeStamp': rec.get('timeStamp'),
+                    'counter': rec.get('counter'),
+                    'soc': tags.get('soc_percent'),
+                    'soh': tags.get('soh_percent'),
+                    'pack_voltage_v': tags.get('pack_voltage_v'),
+                    'pack_current_a': tags.get('pack_current_a'),
+                    'cell_voltage_max_v': tags.get('cell_voltage_max_v'),
+                    'cell_voltage_min_v': tags.get('cell_voltage_min_v'),
+                    'cell_temp_max_c': tags.get('cell_temp_max_c'),
+                    'cell_temp_min_c': tags.get('cell_temp_min_c'),
+                    'vin': tags.get('vin'),
+                }
+                state['kvas']['history'].append(history_entry)
+            if len(state['kvas']['history']) > KVAS_HISTORY_LEN:
+                state['kvas']['history'] = state['kvas']['history'][-KVAS_HISTORY_LEN:]
+            logging.info(f"🔋 K-VAS shadow-decoded {len(shadow)} record(s) - "
+                         f"local test-key decode, NOT authoritative (see D8)")
+
+        socketio.emit('kvas_status', state['kvas'])
+        socketio.emit('kvas_relay', {
+            'resultCode': event.get('resultCode'),
+            'resultTime': event.get('resultTime'),
+            'successCnt': event.get('successCnt'),
+            'errCode': event.get('errCode'),
+            'errMsg': event.get('errMsg'),
+            'recordCount': event.get('recordCount'),
+            'shadowDecoded': shadow,
+        })
+        if state['kvas']['last_record'] is not None:
+            socketio.emit('kvas_battery', {
+                'record': state['kvas']['last_record'],
+                'history': state['kvas']['history'],
+            })
         return
 
     if event_type == 'battery_info':

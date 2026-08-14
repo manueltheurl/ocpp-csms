@@ -373,20 +373,27 @@ class ChargePoint201(cp):
                                                        ocsp_result="IS_FAKED")
 
     @on(Action.data_transfer)
-    def on_data_transfer(self, **kwargs):
+    async def on_data_transfer(self, **kwargs):
         vendor_id = kwargs.get('vendor_id', 'Unknown')
         message_id = kwargs.get('message_id', 'Unknown')
         data = kwargs.get('data', {})
 
         logging.info(f"📦 DataTransfer received - VendorId: {vendor_id}, MessageId: {message_id}")
 
-        # K-VAS (kr.or.keco): GetEncKey and Battery Info. Answered SYNCHRONOUSLY -
-        # response_data below becomes DataTransferResponse.data directly, as an
-        # OBJECT (never a bare string - see TODO.md's "CSMS returns data=\"\"" note
-        # in the MCU repo for why that distinction matters to the MCU's JSON parser).
+        # K-VAS (kr.or.keco): GetEncKey and Battery Info. Answered SYNCHRONOUSLY from
+        # the OCPP protocol's point of view - response_data below becomes
+        # DataTransferResponse.data directly, as an OBJECT (never a bare string - see
+        # TODO.md's "CSMS returns data=\"\"" note in the MCU repo for why that
+        # distinction matters to the MCU's JSON parser) - but kvas.handle() is itself
+        # `async def` because KVAS_MODE=relay needs to await a
+        # loop.run_in_executor() HTTP round trip to KECO without blocking every other
+        # charger's OCPP traffic on this event loop (plan D3). local_ministry mode
+        # does no I/O and returns immediately either way - this handler being async
+        # doesn't change its behaviour, python-ocpp awaits both sync and async
+        # `@on` handlers transparently (see ocpp.charge_point._handle_call).
         if vendor_id == kvas.VENDOR_ID:
             try:
-                response_data, gui_event = kvas.handle(vendor_id, message_id, data)
+                response_data, gui_event = await kvas.handle(vendor_id, message_id, data)
             except Exception as e:
                 logging.error(f"❌ K-VAS handler error ({message_id}): {e}", exc_info=True)
                 response_data = {"resultCode": "0"} if message_id == "Battery Info" else {}

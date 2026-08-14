@@ -120,12 +120,24 @@
                 <div class="card card-full-width kvas-card">
                     <div class="card-header">
                         <h2 class="card-title">EV Battery (K-VAS)</h2>
-                        <div id="kvas-key-badge" class="status-badge status-disconnected">
-                            <span class="status-indicator"></span>
-                            <span id="kvas-key-text">No session key</span>
+                        <div class="kvas-header-badges">
+                            <span id="kvas-mode-badge" class="status-badge status-neutral">local_ministry</span>
+                            <div id="kvas-key-badge" class="status-badge status-disconnected">
+                                <span class="status-indicator"></span>
+                                <span id="kvas-key-text">No session key</span>
+                            </div>
                         </div>
                     </div>
                     <div class="card-content">
+                        <!-- relay mode (KVAS_MODE=relay): no decoded record to show unless
+                             D8 shadow-decrypt kicked in (kvas/shadow_decrypt.py) - this CSMS
+                             never sees KECO's real session key otherwise. See the plan's D1. -->
+                        <div id="kvas-relay-notice" class="kvas-relay-notice hidden">
+                            Relay mode: <code>Battery Info</code> is forwarded to KECO's real
+                            server, not decoded locally (see <code>kvas/README.md</code>).
+                            Metrics below only populate if the optional D8 shadow-decrypt is
+                            active for this charger's test key.
+                        </div>
                         <div class="kvas-metrics">
                             <div class="info-group kvas-soc-group">
                                 <label>State of Charge</label>
@@ -161,12 +173,16 @@
                         </div>
 
                         <div class="kvas-status-strip">
-                            <span>Key ID: <strong id="kvas-status-keyid">—</strong></span>
-                            <span>Decrypted: <strong id="kvas-status-decrypted">0</strong></span>
-                            <span>HMAC failed: <strong id="kvas-status-hmac-failed">0</strong></span>
-                            <span>Undecryptable: <strong id="kvas-status-undecryptable">0</strong></span>
+                            <span class="kvas-local-only">Key ID: <strong id="kvas-status-keyid">—</strong></span>
+                            <span class="kvas-local-only">Decrypted: <strong id="kvas-status-decrypted">0</strong></span>
+                            <span class="kvas-local-only">HMAC failed: <strong id="kvas-status-hmac-failed">0</strong></span>
+                            <span class="kvas-local-only">Undecryptable: <strong id="kvas-status-undecryptable">0</strong></span>
                             <span>Last tsdt: <strong id="kvas-status-tsdt">—</strong></span>
                             <span>Last resultCode: <strong id="kvas-status-resultcode">—</strong></span>
+                            <!-- relay mode only (plan §3.4) -->
+                            <span class="kvas-relay-only hidden">KECO successCnt: <strong id="kvas-status-keco-success">—</strong></span>
+                            <span class="kvas-relay-only hidden">Records relayed: <strong id="kvas-status-relayed-count">0</strong></span>
+                            <span class="kvas-relay-only hidden">KECO error: <strong id="kvas-status-keco-err">—</strong></span>
                         </div>
 
                         <div class="kvas-history-wrap">

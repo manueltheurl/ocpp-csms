@@ -2,3 +2,15 @@
 # the clear). Bench-only material, but it is a per-deployment runtime artifact, not
 # something to version - regenerated automatically on first GetEncKey after a restart.
 kvas_keys.json
+
+# relay.py's manual exchange log (plan §5.8, D7). bkey is redacted before any line is
+# written, but the rest of the wire traffic (sid/cid/tsdt/keyId/battery data) isn't
+# something to keep in git history either.
+keco_exchange.log
+
+# D8/§3.6/§7: test-only charger PRIVATE keys for shadow-decrypt. This directory must
+# only ever hold KECO's openly-published test material (ME12345601's key today) -
+# never a real charger's key, which should never exist off that charger's own
+# hardware in the first place. Gitignored anyway, defense in depth: nothing here is
+# meant to be a durable, version-controlled artifact.
+test_only_charger_privkeys/

@@ -15,6 +15,17 @@ Usage:
 Watch the GUI at http://localhost:1234 while this runs - the "EV Battery (K-VAS)"
 card should populate with the 9 records' decoded values (SoC 50->50->...->90%,
 matching the header comment in vas_reference_records.txt) and hmac_ok=True.
+
+--relay: exercises KVAS_MODE=relay instead (2026-08-12 plan, "K-VAS: relay Battery
+Info from the CSMS to KECO's real test server", §3.5/§6 rung 2). The CSMS must
+already be running with KVAS_MODE=relay (see .env.example) so it forwards GetEncKey/
+Battery Info to KECO's real test server instead of answering locally. The only
+difference on THIS side: signData is minted by KECO for real, forwarded verbatim, so
+it must verify against KECO's real `ME_Server` cert
+(`KVAS_Docs/Keys/.../cn=ME_Server,...pem`), not the bench one - and there is no way
+for this script to confirm its own upload was readable (only KECO holds the matching
+ministry private half), so success is judged purely by `resultCode` in the Battery
+Info response, not by a decoded value showing up anywhere.
 """
 import argparse
 import asyncio
@@ -42,6 +53,15 @@ logger = logging.getLogger("kvas_fake_charger")
 
 MCU_REPO = Path(__file__).resolve().parents[2] / "SmartyPluggerIotBoard"
 RECORDS_FILE = MCU_REPO / "_App" / "Kvas" / "tools" / "vas_reference_records.txt"
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BENCH_MINISTRY_CERT = REPO_ROOT / "kvas" / "bench_ministry.pem"
+# --relay: KECO's real ministry cert, already sitting in this repo (byte-identical
+# public test material, same as kvas/chargers/ME12345601.pem's private half is to
+# CHARGER_PRIVATE_KEY_PEM below) - see the plan's TL;DR for why that's safe to use
+# here. Globbed rather than hardcoded because the directory name on disk has Korean
+# characters that don't round-trip cleanly through every shell/terminal encoding.
+_ME_SERVER_CERT_MATCHES = list((REPO_ROOT / "KVAS_Docs" / "Keys").glob("**/*ME_Server*.pem"))
 
 # The KECO TEST charger private key baked into KvasCredentials.h
 # (CN=ME12345601 -> chargerId "ME" + "123456" + "01"). Public test material, safe to
@@ -74,7 +94,7 @@ class FakeChargePoint(CPBase):
     pass
 
 
-async def run(url: str, cp_id: str):
+async def run(url: str, cp_id: str, relay: bool = False):
     records = load_records()
     logger.info(f"loaded {len(records)} reference VAS record(s) from {RECORDS_FILE}")
 
@@ -112,18 +132,31 @@ async def run(url: str, cp_id: str):
         eph_pub_der = base64.b64decode(entry["encrypt_pub"])
 
         # Verify the signature exactly as the MCU's KvasCrypto_VerifyServerSignature()
-        # would - proves the CSMS's bench ministry cert path is wired correctly.
+        # would. In local_ministry mode this proves the CSMS's bench ministry cert
+        # path is wired correctly; in --relay mode the signature was minted by KECO
+        # for real and forwarded verbatim, so it must verify against KECO's real
+        # ME_Server cert instead (plan §3.5) - a mismatch here would mean the CSMS
+        # isn't actually relaying KECO's response untouched.
         from cryptography.hazmat.primitives import hashes
-        ministry_cert_path = Path(__file__).resolve().parent.parent / "kvas" / "bench_ministry.pem"
         from cryptography import x509
+        if relay:
+            if not _ME_SERVER_CERT_MATCHES:
+                logger.error("--relay: no ME_Server cert found under KVAS_Docs/Keys/ "
+                             "(cn=ME_Server,...pem) - can't verify signData")
+                return
+            ministry_cert_path = _ME_SERVER_CERT_MATCHES[0]
+            cert_label = "KECO's real ME_Server cert"
+        else:
+            ministry_cert_path = BENCH_MINISTRY_CERT
+            cert_label = "bench_ministry.pem"
         ministry_cert = x509.load_pem_x509_certificate(ministry_cert_path.read_bytes())
         message = key_id.encode("ascii") + eph_pub_der
         try:
             ministry_cert.public_key().verify(
                 base64.b64decode(entry["sign_data"]), message, ec.ECDSA(hashes.SHA256()))
-            logger.info("signData verifies against bench_ministry.pem: OK")
+            logger.info(f"signData verifies against {cert_label}: OK")
         except Exception as e:
-            logger.error(f"signData verification FAILED: {e}")
+            logger.error(f"signData verification FAILED against {cert_label}: {e}")
             return
 
         # Charger-side ECDH + KDF, exactly like the MCU does.
@@ -155,9 +188,19 @@ async def run(url: str, cp_id: str):
             },
         ))
         logger.info(f"Battery Info -> status={upload_resp.status}, data={upload_resp.data}")
-        if upload_resp.data.get("result_code") != "0":
-            logger.error("resultCode != '0' - see TODO.md's data=\"\" note if this is "
-                         "an empty string instead of an object")
+        result_code = upload_resp.data.get("result_code")
+        if result_code != "0":
+            logger.error(f"resultCode={result_code!r} != '0' - see TODO.md's data=\"\" note "
+                         f"if this is an empty string instead of an object")
+        elif relay:
+            # --relay: this script has no way to confirm KECO could actually read
+            # the data back (only KECO holds the matching ministry private half) -
+            # resultCode "0" from KECO IS the success signal here, full stop (plan
+            # §3.5). The GUI may additionally show decoded values if D8's
+            # shadow-decrypt is active for this charger (kvas/shadow_decrypt.py) -
+            # that's a bonus, not what "success" is judged on.
+            logger.info(f"{len(battery_set)} record(s) uploaded and ACCEPTED by KECO "
+                        f"(resultCode 0) - check http://localhost:1234 for relay status")
         else:
             logger.info(f"{len(battery_set)} record(s) uploaded and accepted - "
                         f"check the GUI at http://localhost:1234 for decoded values")
@@ -174,9 +217,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="ws://localhost:9000")
     parser.add_argument("--cp-id", default="TEST_CP_016")
+    parser.add_argument("--relay", action="store_true",
+                         help="exercise KVAS_MODE=relay: verify signData against KECO's real "
+                              "ME_Server cert instead of bench_ministry.pem. The CSMS itself "
+                              "must already be running with KVAS_MODE=relay (see .env.example) "
+                              "- this flag only changes what THIS script expects back.")
     args = parser.parse_args()
 
     try:
-        asyncio.run(run(args.url, args.cp_id))
+        asyncio.run(run(args.url, args.cp_id, relay=args.relay))
     except KeyboardInterrupt:
         pass

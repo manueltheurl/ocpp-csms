@@ -142,6 +142,17 @@ body {
     background: var(--danger-color);
 }
 
+/* Neutral badge - K-VAS mode indicator (local_ministry / relay), not a
+   connected/disconnected state. */
+.status-neutral {
+    background: var(--bg-color);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
+    font-family: var(--font-mono, monospace);
+    font-size: 0.75rem;
+    text-transform: none;
+}
+
 @keyframes pulse {
     0%, 100% {
         opacity: 1;
@@ -971,6 +982,26 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+
+.kvas-header-badges {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.kvas-relay-notice {
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+    background: var(--bg-color);
+    border-left: 3px solid var(--accent-color, #f0a020);
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.hidden {
+    display: none !important;
 }
 
 .kvas-metrics {

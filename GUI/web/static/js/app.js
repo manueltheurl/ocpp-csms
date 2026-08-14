@@ -32,6 +32,8 @@ const elements = {
     acDetected: document.getElementById('ac-detected'),
     triggeringOnPowerOutage: document.getElementById('triggering-on-power-outage'),
     // K-VAS (EV Battery)
+    kvasModeBadge: document.getElementById('kvas-mode-badge'),
+    kvasRelayNotice: document.getElementById('kvas-relay-notice'),
     kvasKeyBadge: document.getElementById('kvas-key-badge'),
     kvasKeyText: document.getElementById('kvas-key-text'),
     kvasSoc: document.getElementById('kvas-soc'),
@@ -48,8 +50,17 @@ const elements = {
     kvasStatusUndecryptable: document.getElementById('kvas-status-undecryptable'),
     kvasStatusTsdt: document.getElementById('kvas-status-tsdt'),
     kvasStatusResultCode: document.getElementById('kvas-status-resultcode'),
+    kvasStatusKecoSuccess: document.getElementById('kvas-status-keco-success'),
+    kvasStatusRelayedCount: document.getElementById('kvas-status-relayed-count'),
+    kvasStatusKecoErr: document.getElementById('kvas-status-keco-err'),
     kvasHistoryBody: document.getElementById('kvas-history-body')
 };
+
+// Elements toggled by K-VAS mode (plan §3.4) - queried once since .kvas-local-only/
+// .kvas-relay-only are static markers on several <span>s in the status strip.
+const kvasLocalOnlyEls = document.querySelectorAll('.kvas-local-only');
+const kvasRelayOnlyEls = document.querySelectorAll('.kvas-relay-only');
+let kvasMode = 'local_ministry';   // updated from state.kvas.mode, set once at CSMS startup
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -125,7 +136,20 @@ function fmtNum(value, digits, suffix) {
     return (value === null || value === undefined) ? '—' : `${Number(value).toFixed(digits)}${suffix}`;
 }
 
+// relay mode has nothing decoded to show unless D8 shadow-decrypt is active for
+// this charger (plan §3.4) - a plain "—" would look like a bug, not the expected
+// state, so it gets its own placeholder text.
+const KVAS_RELAY_PLACEHOLDER = 'relayed to KECO';
+
 function updateKvasStatus(kvas) {
+    kvasMode = kvas.mode || 'local_ministry';
+    const isRelay = kvasMode === 'relay';
+
+    elements.kvasModeBadge.textContent = kvasMode;
+    elements.kvasRelayNotice.classList.toggle('hidden', !isRelay);
+    kvasLocalOnlyEls.forEach((el) => el.classList.toggle('hidden', isRelay));
+    kvasRelayOnlyEls.forEach((el) => el.classList.toggle('hidden', !isRelay));
+
     if (kvas.key_id) {
         elements.kvasKeyBadge.classList.remove('status-disconnected');
         elements.kvasKeyBadge.classList.add('status-connected');
@@ -141,6 +165,30 @@ function updateKvasStatus(kvas) {
     elements.kvasStatusUndecryptable.textContent = kvas.records_undecryptable ?? 0;
     elements.kvasStatusTsdt.textContent = kvas.last_tsdt || '—';
     elements.kvasStatusResultCode.textContent = kvas.last_result_code ?? '—';
+
+    if (isRelay) {
+        elements.kvasStatusKecoSuccess.textContent = kvas.keco_success_cnt ?? '—';
+        elements.kvasStatusRelayedCount.textContent = kvas.records_relayed ?? 0;
+        elements.kvasStatusKecoErr.textContent = kvas.keco_err_code
+            ? `${kvas.keco_err_code} (${kvas.keco_err_msg || 'no message'})` : '—';
+        // No decoded record yet (the common case) -> placeholder, not "—". If a D8
+        // shadow-decoded record already arrived, updateKvasRecord() will have
+        // overwritten these with real values - don't stomp on them here.
+        if (!kvas.last_record) {
+            showKvasRelayPlaceholder();
+        }
+    }
+}
+
+function showKvasRelayPlaceholder() {
+    elements.kvasSoc.textContent = KVAS_RELAY_PLACEHOLDER;
+    elements.kvasSocLevel.style.width = '0%';
+    elements.kvasSoh.textContent = KVAS_RELAY_PLACEHOLDER;
+    elements.kvasPackVoltage.textContent = KVAS_RELAY_PLACEHOLDER;
+    elements.kvasPackCurrent.textContent = KVAS_RELAY_PLACEHOLDER;
+    elements.kvasCellVoltage.textContent = KVAS_RELAY_PLACEHOLDER;
+    elements.kvasCellTemp.textContent = KVAS_RELAY_PLACEHOLDER;
+    elements.kvasVin.textContent = KVAS_RELAY_PLACEHOLDER;
 }
 
 function updateKvasRecord(tags) {
@@ -454,6 +502,15 @@ socket.on('kvas_battery', (data) => {
     if (data.history) {
         updateKvasHistory(data.history);
     }
+});
+
+// relay mode only (plan §3.4) - KECO's real response to the last Battery Info
+// relay. kvas_status already carries the summarized counters into the status
+// strip; this event is for anything callers want beyond that (currently just a
+// console trail - kept separate from kvas_battery/kvas_status per the plan, since
+// relay mode has no decoded record of its own to report).
+socket.on('kvas_relay', (data) => {
+    console.log('K-VAS relay result:', data);
 });
 
 // Error handling
