@@ -1,7 +1,7 @@
 """
 kvas/crypto.py - K-VAS battery-data cryptography, CSMS side.
 
-Ported from SmartyPluggerIotBoard's `_App/Kvas/tools/kvas_reference.py`, which is
+Ported from SmartyPlugger's `_App/Kvas/tools/kvas_reference.py`, which is
 itself a faithful port of KECO's own reference code (Java `AesHmac.java`/`Ecdhe.java`,
 C++ `key_exchange.cpp` - see that file's header for the full provenance). Copied
 rather than imported across repos, per the plan's D7 - the two repos are independent
@@ -136,7 +136,7 @@ def ecdh_shared_secret(priv, peer_pub) -> bytes:
 def sign_key_id_and_pubkey(ministry_priv, key_id: str, pub_der_spki: bytes) -> bytes:
     """signData: ECDSA-SHA256(DER) over SHA-256(keyId_ascii(16) || DER_SPKI_bytes),
     matching KvasCrypto_VerifyServerSignature() on the MCU
-    (see KvasCrypto.c:298-309 in the SmartyPluggerIotBoard repo). Note it is the
+    (see KvasCrypto.c:298-309 in the SmartyPlugger repo). Note it is the
     *decoded* SPKI bytes that are signed, not the base64 text."""
     assert len(key_id) == 16
     message = key_id.encode("ascii") + pub_der_spki

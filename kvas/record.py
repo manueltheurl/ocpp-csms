@@ -2,7 +2,7 @@
 kvas/record.py - decodes a K-VAS "Battery Data Exchange" TLV record (the plaintext
 that comes out of AES-CBC decryption) into scaled physical values.
 
-Wire format authority: SmartyPluggerIotBoard's
+Wire format authority: SmartyPlugger's
 `.claude/docs/kvas-vas-record-format.md` §2-4. This module is the CSMS-side twin of
 that repo's `_App/Kvas/KvasVasChannel.c` `TryParseRecord()` - same tag table, same
 scale factors - but tolerant rather than strict: a malformed or unexpected-order
