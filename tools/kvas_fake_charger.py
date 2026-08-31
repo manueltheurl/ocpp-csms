@@ -4,7 +4,7 @@ kvas_fake_charger.py - exercises the entire CSMS K-VAS half with NO board and NO
 
 Connects to the running CSMS as an OCPP 2.0.1 charge point, does BootNotification,
 sends GetEncKey, then encrypts and uploads the 9 real records from
-SmartyPluggerIotBoard's `_App/Kvas/tools/vas_reference_records.txt` using the charger
+SmartyPlugger's `_App/Kvas/tools/vas_reference_records.txt` using the charger
 private key from that repo's `KvasCredentials.h` - i.e. the exact key material the
 real MCU would use. This is bring-up rung #2 in the plan (§5): "kvas_fake_charger.py
 -> CSMS -> GUI. Whole CSMS half proven with no hardware."
@@ -51,7 +51,7 @@ from kvas import crypto  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("kvas_fake_charger")
 
-MCU_REPO = Path(__file__).resolve().parents[2] / "SmartyPluggerIotBoard"
+MCU_REPO = Path(__file__).resolve().parents[2] / "SmartyPlugger"
 RECORDS_FILE = MCU_REPO / "_App" / "Kvas" / "tools" / "vas_reference_records.txt"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -79,7 +79,7 @@ P8YGfOUzfOy4A9mYC0spXbEn2o+gCgYIKoZIzj0DAQehRANCAAQLdONLeaXNdPEC
 def load_records() -> list:
     if not RECORDS_FILE.exists():
         logger.error(f"reference records not found at {RECORDS_FILE} - "
-                     f"is SmartyPluggerIotBoard checked out as a sibling repo?")
+                     f"is SmartyPlugger checked out as a sibling repo?")
         sys.exit(1)
     records = []
     for line in RECORDS_FILE.read_text().splitlines():
